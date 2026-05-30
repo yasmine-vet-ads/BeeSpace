@@ -46,8 +46,19 @@ pio run
 
 As credenciais de Wi-Fi/MQTT estão simuladas via `#define` em `src/main.cpp`; substitua por segredo de build ou provisioning antes de campo.
 
-## 4. Memorial descritivo da arquitetura
+## 4. Agenda de aquisição
 
-O ESP32-S3 acorda por temporizador a cada janela configurável, inicializa barramentos, coleta áudio por I2S/DMA, lê sensores ambientais/balança, serializa a telemetria em JSON, publica via MQTT e retorna ao deep sleep. As tasks FreeRTOS de áudio, sensores e comunicação compartilham uma estrutura de telemetria protegida por mutex; event groups sinalizam conclusão de coleta e envio para que o ciclo ativo seja curto e previsível, reduzindo o consumo médio do conjunto solar/bateria.
+| Dado | Frequência configurada | Comportamento de energia/MQTT |
+|---|---:|---|
+| BME280 + BH1750 | A cada 120 minutos | Sensores ambientais só são energizados/lidos no tick agendado. |
+| INMP441 | A cada 30 minutos | O microfone I2S captura por 5 minutos com DMA e publica métricas acústicas. |
+| HX711 | A cada 7 dias | A balança é ligada, lida com fator/offset calibrados e colocada em `power_down()` após a leitura. |
+| MQTT | Sob demanda | Wi-Fi/MQTT só conecta quando há dado novo, contagem de catraca ou alerta crítico. |
 
-Durante o deep sleep, a melhor estratégia prática no Arduino é manter os sensores críticos em pinos RTC e usar `esp_sleep_enable_ext1_wakeup_io()` para acordar em eventos da catraca TCRT5000 ou do pino `INT` do MPU6050. Contadores ficam em `RTC_DATA_ATTR`, preservados entre sleeps. Para não perder fluxo intenso de abelhas, o firmware acorda no primeiro evento óptico e permanece uma pequena janela ativa contando pulsos por ISR com debounce; para contagem contínua em sono profundo total, a evolução recomendada é mover os TCRT5000 para o coprocessador ULP RISC-V do ESP32-S3 ou para um contador externo ultrabaixo consumo alimentado permanentemente.
+A agenda usa um tick RTC de 15 minutos preservado em `RTC_DATA_ATTR`; wakes por EXT1 não avançam o relógio periódico, então eventos de catraca/furto não antecipam leituras de BME280/BH1750, áudio ou HX711.
+
+## 5. Memorial descritivo da arquitetura
+
+O ESP32-S3 acorda por temporizador ou por EXT1, avalia a agenda de aquisição e executa apenas as tasks que realmente têm dados novos: ambiente/luz a cada 120 minutos, áudio INMP441 a cada 30 minutos por 5 minutos e balança HX711 a cada 7 dias. As tasks FreeRTOS de áudio, sensores e comunicação compartilham uma estrutura de telemetria protegida por mutex; event groups sinalizam conclusão de coleta, e a task MQTT só ativa Wi-Fi quando `hasNewDataToPublish()` detecta dados frescos, contadores de abelhas ou alerta de furto.
+
+Durante o deep sleep, a melhor estratégia prática no Arduino é manter os sensores críticos em pinos RTC e usar `esp_sleep_enable_ext1_wakeup()` para acordar em eventos da catraca TCRT5000 ou do pino `INT` do MPU6050. Contadores ficam em `RTC_DATA_ATTR`, preservados entre sleeps; o firmware semeia o primeiro evento a partir da máscara EXT1 e permanece uma pequena janela ativa contando pulsos por ISR com debounce. Para contagem contínua em sono profundo total, a evolução recomendada é mover os TCRT5000 para o coprocessador ULP RISC-V do ESP32-S3 ou para um contador externo ultrabaixo consumo alimentado permanentemente.
