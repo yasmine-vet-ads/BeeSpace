@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "BeeSpace",
+    "slug": "beespace-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "beespace",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "org.beespace.mobile"
+    },
+    "android": {
+      "package": "org.beespace.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#F8B400"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "project": "BeeSpace",
+      "mission": "Biodiversidade em Órbita"
+    }
+  }
+}
