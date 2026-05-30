@@ -182,7 +182,7 @@ O hardware embarcado de baixo custo atua como o **sistema nervoso da colmeia**, 
 <details>
   <summary><b>Mostrar descrição da imagem (Pra Cego Ver)</b></summary>
   
-  [Ilustração 3D realista de uma colmeia de madeira instalada em um campo florido ao pôr do sol. A colmeia possui cortes arquitetônicos transparentes que revelam seu interior tecnológico. Linhas de dados luminosas e azuis conectam todos os componentes internos até uma antena Wi-Fi, que envia as informações para a "Nuvem BeeSpace" ☁️ no céu. Abelhas voam naturalmente ao redor da caixa.
+  Ilustração 3D realista de uma colmeia de madeira instalada em um campo florido ao pôr do sol. A colmeia possui cortes arquitetônicos transparentes que revelam seu interior tecnológico. Linhas de dados luminosas e azuis conectam todos os componentes internos até uma antena Wi-Fi, que envia as informações para a "Nuvem BeeSpace" ☁️ no céu. Abelhas voam naturalmente ao redor da caixa.
 
 Os componentes do hardware estão apontados e descritos na imagem da seguinte forma:
 
@@ -196,7 +196,7 @@ Os componentes do hardware estão apontados e descritos na imagem da seguinte fo
 
 🌡️ No interior dos quadros de mel: Sensores de "Temperatura e Umidade (BME280)" monitorando o microclima.
 
-⚖️ Na base (pés da colmeia): A "Balança de Mel (Células de Carga & HX711)", sustentando toda a estrutura.]
+⚖️ Na base (pés da colmeia): A "Balança de Mel (Células de Carga & HX711)", sustentando toda a estrutura.
 
 </details>
 
