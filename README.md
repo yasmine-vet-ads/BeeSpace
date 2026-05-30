@@ -199,7 +199,9 @@ Os componentes do hardware estão apontados e descritos na imagem da seguinte fo
 ⚖️ Na base (pés da colmeia): A "Balança de Mel (Células de Carga & HX711)", sustentando toda a estrutura.
 
 </details>
+
 [Entenda o projeto "Pra cego ver"](https://www.handtalk.me/br)
+
 
 [ INMP441 ] **Microfone I2S** para assinatura acústica da colmeia.
 [ BME280 ] **I2C** para temperatura e umidade interna.
