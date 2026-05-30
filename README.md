@@ -178,6 +178,28 @@ O hardware embarcado de baixo custo atua como o **sistema nervoso da colmeia**, 
 
 ### > Hardware e sensores conectados
 
+![Hardware da BeeSpace](hardware.png)
+<details>
+  <summary><b>Mostrar descrição da imagem (Pra Cego Ver)</b></summary>
+  
+  [Ilustração 3D realista de uma colmeia de madeira instalada em um campo florido ao pôr do sol. A colmeia possui cortes arquitetônicos transparentes que revelam seu interior tecnológico. Linhas de dados luminosas e azuis conectam todos os componentes internos até uma antena Wi-Fi, que envia as informações para a "Nuvem BeeSpace" ☁️ no céu. Abelhas voam naturalmente ao redor da caixa.
+
+Os componentes do hardware estão apontados e descritos na imagem da seguinte forma:
+
+☀️ No teto: Um "Mini Painel Solar" inclinado e um "Sensor de Luz Solar (BH1750)" 💡.
+
+🧠 Na lateral direita (em uma caixa transparente): O "ESP32-S3 (Cérebro IoT & Edge AI)" processando os dados, um "Sensor de Impacto e Tombamento (MPU6050)" 💥 e o sistema de "Autonomia 24h" composto por "Baterias 18650 & TP4056/CN3791" 🔋.
+
+👁️ Na porta de entrada (alvado): Há um balão de zoom mostrando as "Catracas Ópticas de Contagem (TCRT5000)", emitindo feixes de luz azul para contar as abelhas que passam.
+
+🎙️ Na parte frontal superior: O "Microfone de Assinatura Acústica (INMP441)".
+
+🌡️ No interior dos quadros de mel: Sensores de "Temperatura e Umidade (BME280)" monitorando o microclima.
+
+⚖️ Na base (pés da colmeia): A "Balança de Mel (Células de Carga & HX711)", sustentando toda a estrutura.]
+
+</details>
+
 [ INMP441 ] **Microfone I2S** para assinatura acústica da colmeia.
 [ BME280 ] **I2C** para temperatura e umidade interna.
 [ TCRT5000 ] **Pinos digitais** para catracas ópticas com interrupções.
