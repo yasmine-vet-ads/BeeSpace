@@ -40,14 +40,24 @@
 #define DEVICE_ID "beespace-hive-001"
 
 // -----------------------------------------------------------------------------
-// Configuração de ciclo de energia e aquisição.
+// Configuração de ciclo de energia, agenda de aquisição e comunicação.
 // -----------------------------------------------------------------------------
-static constexpr uint64_t DEEP_SLEEP_SECONDS = 15ULL * 60ULL;
+static constexpr uint64_t SCHEDULER_TICK_SECONDS = 15ULL * 60ULL;
 static constexpr uint32_t ACTIVE_COUNT_WINDOW_MS = 8000;   // Janela pós-wake para contar fluxo óptico.
 static constexpr uint32_t SENSOR_TASK_TIMEOUT_MS = 15000;
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 static constexpr uint32_t MQTT_CONNECT_TIMEOUT_MS = 15000;
 static constexpr uint32_t MQTT_PUBLISH_GRACE_MS = 500;
+
+static constexpr uint32_t ENVIRONMENT_INTERVAL_MINUTES = 120;
+static constexpr uint32_t AUDIO_INTERVAL_MINUTES = 30;
+static constexpr uint32_t SCALE_INTERVAL_DAYS = 7;
+static constexpr uint32_t ENVIRONMENT_INTERVAL_TICKS =
+    (ENVIRONMENT_INTERVAL_MINUTES * 60UL) / SCHEDULER_TICK_SECONDS;
+static constexpr uint32_t AUDIO_INTERVAL_TICKS =
+    (AUDIO_INTERVAL_MINUTES * 60UL) / SCHEDULER_TICK_SECONDS;
+static constexpr uint32_t SCALE_INTERVAL_TICKS =
+    (SCALE_INTERVAL_DAYS * 24UL * 60UL * 60UL) / SCHEDULER_TICK_SECONDS;
 
 // -----------------------------------------------------------------------------
 // Pinout recomendado para ESP32-S3 DevKitC-1.
@@ -80,6 +90,7 @@ static constexpr uint64_t WAKEUP_PIN_MASK =
 static constexpr uint8_t BME280_ADDR = 0x76;
 static constexpr float SEALEVELPRESSURE_HPA = 1013.25F;
 static constexpr float HX711_CALIBRATION_FACTOR = -7050.0F; // Calibrar com peso conhecido.
+static constexpr long HX711_OFFSET = 0L;                  // Ajustar após tara em bancada/NVS.
 
 static constexpr float BATTERY_DIVIDER_RATIO = 2.0F;       // Ex.: 100 kΩ / 100 kΩ.
 static constexpr float ADC_REFERENCE_MV = 3300.0F;
@@ -89,7 +100,7 @@ static constexpr uint16_t ADC_MAX_READING = 4095;
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 static constexpr uint32_t I2S_SAMPLE_RATE = 16000;
 static constexpr size_t I2S_DMA_SAMPLES = 512;
-static constexpr uint32_t AUDIO_CAPTURE_MS = 3000;
+static constexpr uint32_t AUDIO_CAPTURE_MS = 5UL * 60UL * 1000UL;
 
 // Debounce das catracas ópticas: impede múltiplas contagens por oscilação do feixe.
 static constexpr uint32_t TCRT_DEBOUNCE_US = 6000;
@@ -100,6 +111,7 @@ static constexpr uint32_t TCRT_DEBOUNCE_US = 6000;
 struct HiveTelemetry {
   char deviceId[32];
   uint32_t bootCount;
+  uint32_t scheduleTick;
   esp_sleep_wakeup_cause_t wakeupCause;
   uint32_t beeEntriesTotal;
   uint32_t beeExitsTotal;
@@ -128,6 +140,13 @@ struct HiveTelemetry {
   int32_t audioPeak;
   float zeroCrossingRate;
 
+  bool environmentFresh;
+  bool audioFresh;
+  bool scaleFresh;
+  bool batteryFresh;
+  bool imuFresh;
+  bool countersFresh;
+
   bool bmeOk;
   bool bh1750Ok;
   bool hx711Ok;
@@ -144,6 +163,21 @@ static constexpr EventBits_t BIT_AUDIO_DONE = BIT0;
 static constexpr EventBits_t BIT_SENSORS_DONE = BIT1;
 static constexpr EventBits_t BIT_MQTT_DONE = BIT2;
 
+struct AcquisitionSchedule {
+  bool firstBoot;
+  bool timerWake;
+  bool extWake;
+  bool environmentDue;
+  bool audioDue;
+  bool scaleDue;
+  bool eventWake;
+  bool shouldReadBattery;
+  bool shouldReadMpu;
+  bool publishExpected;
+};
+
+static AcquisitionSchedule acquisitionSchedule = {};
+
 static WiFiClient wifiClient;
 static PubSubClient mqttClient(wifiClient);
 static Adafruit_BME280 bme;
@@ -153,6 +187,7 @@ static HX711 scale;
 
 // Contadores preservados em RTC RAM entre ciclos de deep sleep.
 RTC_DATA_ATTR uint32_t rtcBootCount = 0;
+RTC_DATA_ATTR uint32_t rtcScheduleTick = 0;
 RTC_DATA_ATTR uint32_t rtcBeeEntriesTotal = 0;
 RTC_DATA_ATTR uint32_t rtcBeeExitsTotal = 0;
 RTC_DATA_ATTR uint32_t rtcTheftEventsTotal = 0;
@@ -224,6 +259,60 @@ static float readBatteryVoltage() {
   return pinVoltage * BATTERY_DIVIDER_RATIO;
 }
 
+static bool isFirstBoot() {
+  return rtcBootCount == 1;
+}
+
+static void updateSchedulerTick(esp_sleep_wakeup_cause_t wakeupCause) {
+  // O relógio de agenda avança apenas em wakes por temporizador. Eventos EXT1
+  // não contam como amostra periódica, evitando que furto/catraca antecipe leituras.
+  if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
+    rtcScheduleTick++;
+  }
+}
+
+static AcquisitionSchedule determineAcquisitionSchedule(esp_sleep_wakeup_cause_t wakeupCause) {
+  AcquisitionSchedule schedule = {};
+  schedule.firstBoot = isFirstBoot();
+  schedule.timerWake = wakeupCause == ESP_SLEEP_WAKEUP_TIMER;
+  schedule.extWake = wakeupCause == ESP_SLEEP_WAKEUP_EXT1;
+  schedule.environmentDue = schedule.firstBoot ||
+                            (schedule.timerWake && (rtcScheduleTick % ENVIRONMENT_INTERVAL_TICKS == 0));
+  schedule.audioDue = schedule.firstBoot ||
+                      (schedule.timerWake && (rtcScheduleTick % AUDIO_INTERVAL_TICKS == 0));
+  schedule.scaleDue = schedule.firstBoot ||
+                      (schedule.timerWake && (rtcScheduleTick % SCALE_INTERVAL_TICKS == 0));
+  schedule.eventWake = schedule.extWake;
+  schedule.publishExpected = schedule.environmentDue || schedule.audioDue || schedule.scaleDue || schedule.eventWake;
+  schedule.shouldReadBattery = schedule.publishExpected;
+  schedule.shouldReadMpu = schedule.publishExpected;
+  return schedule;
+}
+
+static void seedWakeupEventsFromExt1() {
+  if (!acquisitionSchedule.extWake) {
+    return;
+  }
+
+  const uint64_t wakeMask = esp_sleep_get_ext1_wakeup_status();
+  portENTER_CRITICAL(&isrMux);
+  if (wakeMask & (1ULL << static_cast<uint8_t>(PIN_TCRT_ENTRY))) {
+    sessionEntries++;
+  }
+  if (wakeMask & (1ULL << static_cast<uint8_t>(PIN_TCRT_EXIT))) {
+    sessionExits++;
+  }
+  if (wakeMask & (1ULL << static_cast<uint8_t>(PIN_MPU_INT))) {
+    theftInterruptSeen = true;
+  }
+  portEXIT_CRITICAL(&isrMux);
+}
+
+static bool hasNewDataToPublish(const HiveTelemetry &snapshot) {
+  return snapshot.environmentFresh || snapshot.audioFresh || snapshot.scaleFresh ||
+         snapshot.batteryFresh || snapshot.imuFresh || snapshot.countersFresh || snapshot.theftAlert;
+}
+
 static void copyCountersToTelemetry() {
   uint32_t entries;
   uint32_t exits;
@@ -248,6 +337,7 @@ static void copyCountersToTelemetry() {
     telemetry.beeExitsTotal = rtcBeeExitsTotal;
     telemetry.theftAlert = theft;
     telemetry.theftEventsTotal = rtcTheftEventsTotal;
+    telemetry.countersFresh = (entries > 0 || exits > 0);
     xSemaphoreGive(telemetryMutex);
   }
 }
@@ -317,6 +407,12 @@ static void setupMpuInterruptMode() {
 static void audioTask(void *parameter) {
   (void)parameter;
 
+  if (!acquisitionSchedule.audioDue) {
+    xEventGroupSetBits(cycleEvents, BIT_AUDIO_DONE);
+    vTaskDelete(nullptr);
+    return;
+  }
+
   float rms = 0.0F;
   int32_t peak = 0;
   float zeroCrossingRate = 0.0F;
@@ -364,6 +460,7 @@ static void audioTask(void *parameter) {
     telemetry.audioRms = rms;
     telemetry.audioPeak = peak;
     telemetry.zeroCrossingRate = zeroCrossingRate;
+    telemetry.audioFresh = true;
     telemetry.audioOk = audioOk;
     xSemaphoreGive(telemetryMutex);
   }
@@ -379,50 +476,56 @@ static void sensorTask(void *parameter) {
   (void)parameter;
 
   HiveTelemetry local = {};
-  local.bmeOk = bme.begin(BME280_ADDR, &Wire);
-  local.bh1750Ok = lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire);
-  local.mpuOk = mpu.begin(0x68, &Wire);
 
-  scale.begin(PIN_HX711_DOUT, PIN_HX711_SCK);
-  scale.set_scale(HX711_CALIBRATION_FACTOR);
-  scale.tare(5);
-  local.hx711Ok = scale.wait_ready_timeout(1000);
+  if (acquisitionSchedule.environmentDue) {
+    local.bmeOk = bme.begin(BME280_ADDR, &Wire);
+    local.bh1750Ok = lightMeter.begin(BH1750::ONE_TIME_HIGH_RES_MODE, 0x23, &Wire);
 
-  if (local.mpuOk) {
-    setupMpuInterruptMode();
+    if (local.bmeOk) {
+      local.temperatureC = bme.readTemperature();
+      local.humidityPct = bme.readHumidity();
+      local.pressureHpa = bme.readPressure() / 100.0F;
+      local.altitudeM = bme.readAltitude(SEALEVELPRESSURE_HPA);
+    }
+
+    if (local.bh1750Ok) {
+      delay(180); // Tempo máximo de conversão no modo one-shot de alta resolução.
+      local.luminosityLux = lightMeter.readLightLevel();
+    }
   }
 
-  if (local.bmeOk) {
-    local.temperatureC = bme.readTemperature();
-    local.humidityPct = bme.readHumidity();
-    local.pressureHpa = bme.readPressure() / 100.0F;
-    local.altitudeM = bme.readAltitude(SEALEVELPRESSURE_HPA);
+  if (acquisitionSchedule.scaleDue) {
+    scale.begin(PIN_HX711_DOUT, PIN_HX711_SCK);
+    scale.set_scale(HX711_CALIBRATION_FACTOR);
+    scale.set_offset(HX711_OFFSET); // Não tarar em campo para não zerar o peso real da colmeia.
+    local.hx711Ok = scale.wait_ready_timeout(1000);
+    if (local.hx711Ok) {
+      local.weightKg = scale.get_units(10);
+    }
+    scale.power_down();
   }
 
-  if (local.bh1750Ok) {
-    local.luminosityLux = lightMeter.readLightLevel();
+  if (acquisitionSchedule.shouldReadMpu) {
+    local.mpuOk = mpu.begin(0x68, &Wire);
+    if (local.mpuOk) {
+      setupMpuInterruptMode();
+      sensors_event_t accel;
+      sensors_event_t gyro;
+      sensors_event_t temp;
+      mpu.getEvent(&accel, &gyro, &temp);
+      local.accelX = accel.acceleration.x;
+      local.accelY = accel.acceleration.y;
+      local.accelZ = accel.acceleration.z;
+      local.gyroX = gyro.gyro.x;
+      local.gyroY = gyro.gyro.y;
+      local.gyroZ = gyro.gyro.z;
+    }
   }
 
-  if (local.hx711Ok) {
-    local.weightKg = scale.get_units(10);
+  if (acquisitionSchedule.shouldReadBattery) {
+    local.batteryVoltage = readBatteryVoltage();
+    local.batteryPct = batteryPercentFromVoltage(local.batteryVoltage);
   }
-  scale.power_down();
-
-  if (local.mpuOk) {
-    sensors_event_t accel;
-    sensors_event_t gyro;
-    sensors_event_t temp;
-    mpu.getEvent(&accel, &gyro, &temp);
-    local.accelX = accel.acceleration.x;
-    local.accelY = accel.acceleration.y;
-    local.accelZ = accel.acceleration.z;
-    local.gyroX = gyro.gyro.x;
-    local.gyroY = gyro.gyro.y;
-    local.gyroZ = gyro.gyro.z;
-  }
-
-  local.batteryVoltage = readBatteryVoltage();
-  local.batteryPct = batteryPercentFromVoltage(local.batteryVoltage);
 
   if (xSemaphoreTake(telemetryMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
     telemetry.temperatureC = local.temperatureC;
@@ -439,6 +542,10 @@ static void sensorTask(void *parameter) {
     telemetry.gyroX = local.gyroX;
     telemetry.gyroY = local.gyroY;
     telemetry.gyroZ = local.gyroZ;
+    telemetry.environmentFresh = acquisitionSchedule.environmentDue;
+    telemetry.scaleFresh = acquisitionSchedule.scaleDue;
+    telemetry.batteryFresh = acquisitionSchedule.shouldReadBattery;
+    telemetry.imuFresh = acquisitionSchedule.shouldReadMpu;
     telemetry.bmeOk = local.bmeOk;
     telemetry.bh1750Ok = local.bh1750Ok;
     telemetry.hx711Ok = local.hx711Ok;
@@ -487,51 +594,87 @@ static bool connectMqtt() {
 }
 
 static size_t buildTelemetryJson(char *buffer, size_t bufferSize, const HiveTelemetry &snapshot) {
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<1536> doc;
 
   doc["device_id"] = snapshot.deviceId;
   doc["boot_count"] = snapshot.bootCount;
+  doc["schedule_tick"] = snapshot.scheduleTick;
   doc["wakeup"] = wakeupCauseToString(snapshot.wakeupCause);
 
-  JsonObject counters = doc["bee_counter"].to<JsonObject>();
-  counters["entries_total"] = snapshot.beeEntriesTotal;
-  counters["exits_total"] = snapshot.beeExitsTotal;
-  counters["entries_session"] = snapshot.beeEntriesSession;
-  counters["exits_session"] = snapshot.beeExitsSession;
+  JsonObject schedule = doc["schedule"].to<JsonObject>();
+  schedule["tick_seconds"] = SCHEDULER_TICK_SECONDS;
+  schedule["environment_interval_min"] = ENVIRONMENT_INTERVAL_MINUTES;
+  schedule["audio_interval_min"] = AUDIO_INTERVAL_MINUTES;
+  schedule["audio_window_min"] = AUDIO_CAPTURE_MS / 60000UL;
+  schedule["scale_interval_days"] = SCALE_INTERVAL_DAYS;
 
-  JsonObject environment = doc["environment"].to<JsonObject>();
-  environment["temperature_c"] = snapshot.temperatureC;
-  environment["humidity_pct"] = snapshot.humidityPct;
-  environment["pressure_hpa"] = snapshot.pressureHpa;
-  environment["altitude_m"] = snapshot.altitudeM;
-  environment["luminosity_lux"] = snapshot.luminosityLux;
+  JsonObject fresh = doc["fresh"].to<JsonObject>();
+  fresh["environment"] = snapshot.environmentFresh;
+  fresh["audio"] = snapshot.audioFresh;
+  fresh["scale"] = snapshot.scaleFresh;
+  fresh["battery"] = snapshot.batteryFresh;
+  fresh["imu"] = snapshot.imuFresh;
+  fresh["counters"] = snapshot.countersFresh;
 
-  JsonObject scaleJson = doc["scale"].to<JsonObject>();
-  scaleJson["weight_kg"] = snapshot.weightKg;
+  if (snapshot.countersFresh || snapshot.theftAlert) {
+    JsonObject counters = doc["bee_counter"].to<JsonObject>();
+    counters["entries_total"] = snapshot.beeEntriesTotal;
+    counters["exits_total"] = snapshot.beeExitsTotal;
+    counters["entries_session"] = snapshot.beeEntriesSession;
+    counters["exits_session"] = snapshot.beeExitsSession;
+  }
 
-  JsonObject imu = doc["imu"].to<JsonObject>();
-  imu["accel_x"] = snapshot.accelX;
-  imu["accel_y"] = snapshot.accelY;
-  imu["accel_z"] = snapshot.accelZ;
-  imu["gyro_x"] = snapshot.gyroX;
-  imu["gyro_y"] = snapshot.gyroY;
-  imu["gyro_z"] = snapshot.gyroZ;
+  if (snapshot.environmentFresh) {
+    JsonObject environment = doc["environment"].to<JsonObject>();
+    environment["temperature_c"] = snapshot.temperatureC;
+    environment["humidity_pct"] = snapshot.humidityPct;
+    environment["pressure_hpa"] = snapshot.pressureHpa;
+    environment["altitude_m"] = snapshot.altitudeM;
+    environment["luminosity_lux"] = snapshot.luminosityLux;
+  }
 
-  JsonObject audio = doc["audio"].to<JsonObject>();
-  audio["rms"] = snapshot.audioRms;
-  audio["peak"] = snapshot.audioPeak;
-  audio["zero_crossing_rate"] = snapshot.zeroCrossingRate;
+  if (snapshot.scaleFresh) {
+    JsonObject scaleJson = doc["scale"].to<JsonObject>();
+    scaleJson["weight_kg"] = snapshot.weightKg;
+  }
 
-  JsonObject battery = doc["battery"].to<JsonObject>();
-  battery["voltage"] = snapshot.batteryVoltage;
-  battery["percent"] = snapshot.batteryPct;
+  if (snapshot.imuFresh) {
+    JsonObject imu = doc["imu"].to<JsonObject>();
+    imu["accel_x"] = snapshot.accelX;
+    imu["accel_y"] = snapshot.accelY;
+    imu["accel_z"] = snapshot.accelZ;
+    imu["gyro_x"] = snapshot.gyroX;
+    imu["gyro_y"] = snapshot.gyroY;
+    imu["gyro_z"] = snapshot.gyroZ;
+  }
+
+  if (snapshot.audioFresh) {
+    JsonObject audio = doc["audio"].to<JsonObject>();
+    audio["rms"] = snapshot.audioRms;
+    audio["peak"] = snapshot.audioPeak;
+    audio["zero_crossing_rate"] = snapshot.zeroCrossingRate;
+  }
+
+  if (snapshot.batteryFresh) {
+    JsonObject battery = doc["battery"].to<JsonObject>();
+    battery["voltage"] = snapshot.batteryVoltage;
+    battery["percent"] = snapshot.batteryPct;
+  }
 
   JsonObject health = doc["health"].to<JsonObject>();
-  health["bme280"] = snapshot.bmeOk;
-  health["bh1750"] = snapshot.bh1750Ok;
-  health["hx711"] = snapshot.hx711Ok;
-  health["mpu6050"] = snapshot.mpuOk;
-  health["audio"] = snapshot.audioOk;
+  if (snapshot.environmentFresh) {
+    health["bme280"] = snapshot.bmeOk;
+    health["bh1750"] = snapshot.bh1750Ok;
+  }
+  if (snapshot.scaleFresh) {
+    health["hx711"] = snapshot.hx711Ok;
+  }
+  if (snapshot.imuFresh) {
+    health["mpu6050"] = snapshot.mpuOk;
+  }
+  if (snapshot.audioFresh) {
+    health["audio"] = snapshot.audioOk;
+  }
   health["mqtt"] = snapshot.mqttOk;
 
   JsonObject alert = doc["alert"].to<JsonObject>();
@@ -561,27 +704,30 @@ static void publishCriticalAlertIfNeeded(const HiveTelemetry &snapshot) {
 static void communicationTask(void *parameter) {
   (void)parameter;
 
+  const uint32_t dataWaitMs = acquisitionSchedule.audioDue
+                                  ? (AUDIO_CAPTURE_MS + SENSOR_TASK_TIMEOUT_MS)
+                                  : SENSOR_TASK_TIMEOUT_MS;
   xEventGroupWaitBits(
       cycleEvents,
       BIT_AUDIO_DONE | BIT_SENSORS_DONE,
       pdFALSE,
       pdTRUE,
-      pdMS_TO_TICKS(SENSOR_TASK_TIMEOUT_MS));
+      pdMS_TO_TICKS(dataWaitMs));
 
   copyCountersToTelemetry();
 
-  bool published = false;
-  if (connectWiFi() && connectMqtt()) {
-    HiveTelemetry snapshot = {};
-    if (xSemaphoreTake(telemetryMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-      telemetry.mqttOk = true;
-      snapshot = telemetry;
-      xSemaphoreGive(telemetryMutex);
-    }
+  HiveTelemetry snapshot = {};
+  if (xSemaphoreTake(telemetryMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    snapshot = telemetry;
+    xSemaphoreGive(telemetryMutex);
+  }
 
+  bool published = false;
+  if (hasNewDataToPublish(snapshot) && connectWiFi() && connectMqtt()) {
+    snapshot.mqttOk = true;
     publishCriticalAlertIfNeeded(snapshot);
 
-    char payload[1024];
+    char payload[1536];
     const size_t length = buildTelemetryJson(payload, sizeof(payload), snapshot);
     if (length > 0 && length < sizeof(payload)) {
       published = mqttClient.publish(MQTT_TOPIC_TELEMETRY, payload, false);
@@ -610,8 +756,16 @@ static void communicationTask(void *parameter) {
 // -----------------------------------------------------------------------------
 // Deep sleep: temporizador + EXT1 para TCRT5000 e MPU6050.
 // -----------------------------------------------------------------------------
-static void configureWakeupSources() {
-  esp_sleep_enable_timer_wakeup(DEEP_SLEEP_SECONDS * 1000000ULL);
+static uint64_t calculateNextTimerWakeSeconds() {
+  const uint64_t activeSeconds = (millis() + 999ULL) / 1000ULL;
+  if (activeSeconds >= SCHEDULER_TICK_SECONDS) {
+    return 60ULL;
+  }
+  return max<uint64_t>(60ULL, SCHEDULER_TICK_SECONDS - activeSeconds);
+}
+
+static void configureWakeupSources(uint64_t timerWakeSeconds) {
+  esp_sleep_enable_timer_wakeup(timerWakeSeconds * 1000000ULL);
 
   // Estratégia: TCRT5000 e MPU6050 INT em nível alto acordam via EXT1.
   // Se o módulo óptico for ativo-baixo, inverter o sinal em hardware ou ajustar para
@@ -628,7 +782,7 @@ static void configureWakeupSources() {
 
 static void enterDeepSleep() {
   digitalWrite(PIN_STATUS_LED, LOW);
-  configureWakeupSources();
+  configureWakeupSources(calculateNextTimerWakeSeconds());
   Serial.flush();
   esp_deep_sleep_start();
 }
@@ -644,10 +798,15 @@ void setup() {
   digitalWrite(PIN_STATUS_LED, HIGH);
 
   rtcBootCount++;
+  const esp_sleep_wakeup_cause_t wakeupCause = esp_sleep_get_wakeup_cause();
+  updateSchedulerTick(wakeupCause);
+  acquisitionSchedule = determineAcquisitionSchedule(wakeupCause);
+
   memset(&telemetry, 0, sizeof(telemetry));
   strlcpy(telemetry.deviceId, DEVICE_ID, sizeof(telemetry.deviceId));
   telemetry.bootCount = rtcBootCount;
-  telemetry.wakeupCause = esp_sleep_get_wakeup_cause();
+  telemetry.scheduleTick = rtcScheduleTick;
+  telemetry.wakeupCause = wakeupCause;
   telemetry.beeEntriesTotal = rtcBeeEntriesTotal;
   telemetry.beeExitsTotal = rtcBeeExitsTotal;
   telemetry.theftEventsTotal = rtcTheftEventsTotal;
@@ -661,6 +820,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_TCRT_ENTRY), onEntryBeamBreak, RISING);
   attachInterrupt(digitalPinToInterrupt(PIN_TCRT_EXIT), onExitBeamBreak, RISING);
   attachInterrupt(digitalPinToInterrupt(PIN_MPU_INT), onMpuMotionAlert, RISING);
+  seedWakeupEventsFromExt1();
 
   analogReadResolution(12);
   analogSetPinAttenuation(PIN_BATTERY_ADC, ADC_11db);
@@ -685,7 +845,8 @@ void setup() {
       BIT_MQTT_DONE,
       pdFALSE,
       pdTRUE,
-      pdMS_TO_TICKS(SENSOR_TASK_TIMEOUT_MS + WIFI_CONNECT_TIMEOUT_MS + MQTT_CONNECT_TIMEOUT_MS + 5000));
+      pdMS_TO_TICKS((acquisitionSchedule.audioDue ? AUDIO_CAPTURE_MS : 0) +
+                    SENSOR_TASK_TIMEOUT_MS + WIFI_CONNECT_TIMEOUT_MS + MQTT_CONNECT_TIMEOUT_MS + 5000));
 
   detachInterrupt(digitalPinToInterrupt(PIN_TCRT_ENTRY));
   detachInterrupt(digitalPinToInterrupt(PIN_TCRT_EXIT));
