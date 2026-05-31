@@ -101,3 +101,35 @@ beespace-ml-mvp/
 ├── requirements.txt
 ├── dados_sinteticos_beespace.csv
 └── modelo_beespace_mvp.pkl
+
+🚀 Instalação e Execução📋 RequisitosPython 3.10 ou superiorNumPyPandasScikit-learnJoblib🛠️ InstalaçãoClone o repositório:Bashgit clone [https://github.com/seu-usuario/beespace-ml-mvp.git](https://github.com/seu-usuario/beespace-ml-mvp.git)
+cd beespace-ml-mvp
+Crie um ambiente virtual:Bashpython -m venv venv
+Ative o ambiente virtual:No Windows:DOSvenv\Scripts\activate
+No Linux ou macOS:Bashsource venv/bin/activate
+Instale as dependências:Bashpip install -r requirements.txt
+Nota: Caso ainda não exista, crie um arquivo requirements.txt com o seguinte conteúdo:Plaintextnumpy
+pandas
+scikit-learn
+joblib
+▶️ ExecuçãoExecute o script principal:Bashpython beespace_mvp.py
+Ao final da execução, o script deverá:Gerar uma base sintética;Treinar o modelo;Exibir métricas de avaliação;Listar as variáveis mais importantes;Simular a classificação de uma nova colmeia;Salvar o modelo treinado;Salvar a base sintética em CSV.📈 Saídas esperadasO terminal exibirá informações como:PlaintextAmostra dos dados:
+...
+
+Distribuição das classes:
+normal     ...
+atencao    ...
+alerta     ...
+
+Matriz de confusão:
+...
+
+Relatório de classificação:
+...
+
+Variáveis mais importantes para o modelo:
+...
+
+Classe prevista:
+alerta
+Também serão gerados dois arquivos:modelo_beespace_mvp.pkldados_sinteticos_beespace.csv💡 Exemplo de interpretaçãoUma colmeia pode ser classificada como alerta quando ocorre uma combinação de fatores como:Baixo NDVI;Baixa umidade da vegetação;Pouca chuva recente;Alta temperatura média;Baixa presença de mata nativa;Predominância agrícola;Queda de peso da colmeia;Baixa atividade das abelhas;Anomalia acústica;Mortalidade observada.Essa lógica representa a proposta central da BeeSpace: o satélite indica o contexto territorial, enquanto a colmeia valida o que está acontecendo no campo.⚠️ Limitações do MVPEste MVP é uma prova de conceito e possui limitações importantes:Os dados utilizados são sintéticos;Os rótulos das classes são gerados por regras simuladas;O modelo ainda não foi treinado com dados reais de sensores;A relação entre indicadores ambientais e saúde da colmeia precisa de validação em campo;Os indicadores de florada, biodiversidade e risco ambiental são aproximações iniciais;O uso de dados atmosféricos deve ser tratado como camada complementar até validação científica.⏭️ Próximos passosOs próximos passos recomendados são:Integrar dados reais do Copernicus Data Space Ecosystem.Automatizar recortes territoriais em raio de 3 km por colmeia.Calcular NDVI, EVI e NDWI a partir de imagens Sentinel-2.Incorporar dados climáticos ERA5-Land.Integrar leituras reais de sensores IoT.Coletar registros de campo com produtores.Validar rótulos com especialistas em apicultura, meliponicultura e sanidade.Re-treinar o modelo com dados reais.Criar um dashboard com mapas, indicadores e alertas.Evoluir o MVP para uma API de classificação em tempo quase real.🔄 Possível evolução técnicaUma evolução natural do MVP é separar o sistema em três modelos:ModeloFinalidadeClassificador de risco da colmeiaIdentificar colmeias em situação normal, atenção ou alertaEstimador de disponibilidade floralInferir potencial de pasto apícola a partir de vegetação, clima e dados da colmeiaDetector de anomalias ambientaisIdentificar padrões incomuns em regiões monitoradas🌐 Aplicação no projeto BeeSpaceEste MVP pode ser usado como base para:Demonstração técnica no hackathon;Validação da arquitetura de dados;Apresentação do pipeline Copernicus + colmeia inteligente;Geração de alertas simulados;Prototipação de dashboard;Explicação do papel da inteligência artificial na BeeSpace.🛑 Aviso sobre os dadosOs dados utilizados neste MVP são sintéticos e servem apenas para demonstrar o funcionamento do pipeline. Eles não devem ser interpretados como medições reais de colmeias, vegetação, clima, poluição ou biodiversidade.📄 LicençaDefinir a licença conforme a estratégia do projeto.Sugestão para projeto aberto: MIT License👥 AutoriaProjeto BeeSpace | CopernicusLAC Panamá Hackathon 2026MVP de Machine Learning para biovigilância ambiental com colmeias inteligentes e dados Copernicus.
