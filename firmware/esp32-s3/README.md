@@ -1,7 +1,7 @@
 <div align="center">
 # 🐝 BeeSpace Firmware — ESP32-S3
-**Firmware de produção para o biossensor inteligente de colmeias BeeSpace.**<br>
-Desenvolvido com **PlatformIO + Arduino**, usando **FreeRTOS**, **MQTT/JSON** e estratégia agressiva de **deep sleep** para operação em campo.
+Firmware de produção para o biossensor inteligente de colmeias BeeSpace.<br>
+Desenvolvido com PlatformIO + Arduino, usando FreeRTOS, MQTT/JSON e estratégia agressiva de deep sleep para operação em campo.
 
 ![PlatformIO](https://img.shields.io/badge/PlatformIO-ESP32--S3-orange?style=for-the-badge&logo=platformio)
 ![Arduino](https://img.shields.io/badge/Arduino-Compatible-00979D?style=for-the-badge&logo=arduino&logoColor=white)
