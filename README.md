@@ -2,7 +2,7 @@
 
 # 🐝 BeeSpace: Biodiversidade em Órbita 🛰️
 
-**Colmeias inteligentes para monitorar biodiversidade, clima, produção apícola e sinais ambientais — do micro da colmeia ao macro dos satélites Copernicus.**
+**Colmeias inteligentes para monitorar biodiversidade, clima, produção apícola e sinais ambientais, do micro da colmeia ao macro dos satélites Copernicus.**
 
 < **IoT** | **Machine Learning** | **Visão Computacional** | **Copernicus** | **ESG com dados verificáveis** >
 
