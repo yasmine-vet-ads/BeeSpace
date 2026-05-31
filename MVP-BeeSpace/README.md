@@ -1,104 +1,94 @@
 # BeeSpace ML MVP
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-MVP-orange?style=for-the-badge&logo=rocket" alt="Status MVP">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python" alt="Python Version">
+  <img src="https://img.shields.io/badge/Status-MVP-orange?style=for-the-badge" alt="Status MVP">
   <img src="https://img.shields.io/badge/Contexto-CopernicusLAC_Hackathon_2026-green?style=for-the-badge&logo=copernicus" alt="Hackathon Context">
-  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License MIT">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python" alt="Python Version">
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License MIT">
 </p>
 
-<p align="center">
-  <strong>Prova de Conceito de Machine Learning para biovigilância ambiental, sanitária e produtiva com colmeias inteligentes e dados Copernicus.</strong>
-</p>
+## 📄 Sobre o Projeto
+
+A **BeeSpace** propõe uma solução inovadora de **biovigilância territorial**. Nossa missão é transformar colmeias inteligentes em biossensores territoriais ativos, conectando dados locais das colmeias com dados geoespaciais e climáticos do programa **Copernicus**.
+
+Esta solução busca apoiar produtores, pesquisadores, empresas parceiras e iniciativas de proteção da biodiversidade. Utilizamos indicadores baseados em uma abordagem multidisciplinar que une:
+* Dados de campo e sensores IoT;
+* Visão computacional e bioacústica;
+* Observação da Terra (Satélites).
 
 ---
 
-## 🎯 Visão Geral
+## 🎯 Objetivo do MVP (Prova de Conceito)
 
-A **BeeSpace** propõe transformar colmeias inteligentes em **biossensores territoriais ativos**. Este repositório contém o MVP (Produto Mínimo Viável) de Machine Learning, desenvolvido como prova de conceito para o **CopernicusLAC Panamá Hackathon 2026**.
+Este repositório contém o **MVP de Machine Learning** desenvolvido como prova de conceito para o projeto BeeSpace no contexto do **CopernicusLAC Panamá Hackathon 2026**.
 
-Nossa solução conecta dados locais microambientais (sensores IoT, acústica, visão) com dados geoespaciais e climáticos macroambientais do programa **Copernicus**, utilizando inteligência artificial para classificar a saúde da colmeia e o risco do entorno.
+O objetivo principal é demonstrar como dados macroambientais (satélite) e microambientais (sensores locais) podem ser integrados em um *pipeline* de Machine Learning para classificar o estado de saúde e segurança de uma colmeia monitorada.
 
-> **Tese Central:** Dados Copernicus + Sensores da Colmeia + Inteligência = Alerta Acionável para Biovigilância Ambiental.
-
-## 📌 Tabela de Conteúdos
-
-- [Objetivo do MVP](#-objetivo-do-mvp)
-- [Arquitetura de Dados (Prevista)](#-arquitetura-de-dados-prevista)
-- [Como o Modelo Funciona](#-como-o-modelo-funciona)
-- [Início Rápido](#-início-rápido)
-  - [Instalação](#instalação)
-  - [Execução](#execução)
-- [Limitações e Próximos Passos](#-limitações-e-próximos-passos)
-- [Equipe e Contato](#-equipe-e-contato)
-
----
-
-## 🚀 Objetivo do MVP
-
-O script principal treina e avalia um modelo de classificação que categoriza o estado de cada colmeia inteligente e seu entorno em três níveis de risco:
-
-| Nível | Classe | Significado Biológico/Ambiental |
-| :---: | :--- | :--- |
-| ✅ | **`normal`** | Colmeia saudável e entorno em condição favorável. |
-| ⚠️ | **`atencao`** | Sinais moderados de estresse na colmeia ou risco ambiental/climático detectado. |
-| 🚨 | **`alerta`** | Combinação crítica de fatores ambientais adversos e sinais anômalos graves da colmeia. |
-
----
-
-## 📊 Arquitetura de Dados (Prevista)
-
-*Nota: Este MVP utiliza **dados sintéticos** modelados com base nas estatísticas e distribuições esperadas das fontes reais abaixo.*
-
-### 📡 Macrodados (Programa Copernicus)
-
-<details>
-<summary>Clique para expandir as fontes geoespaciais previstas</summary>
-
-| Variável | Fonte Prevista | Interpretação (Vetor de Risco/Saúde) |
-| :--- | :--- | :--- |
-| **NDVI** | Sentinel-2 / CLMS | Vigor e saúde geral da vegetação circundante. |
-| **EVI** | Sentinel-2 | Densidade e atividade vegetal (ajustado para solo). |
-| **NDWI** | Sentinel-2 | Conteúdo hídrico (umidade) da vegetação. |
-| **temp_media** | C3S / ERA5-Land | Temperatura média histórica/recente da área. |
-| **precipitacao_7d** | C3S / ERA5-Land | Chuva acumulada na última semana (impacta forrageamento). |
-| **umidade_solo** | C3S / ERA5-Land | Condição hídrica do solo (impacta florada). |
-| **poluicao_indice** | Sentinel-5P / CAMS | Indicador de poluentes atmosféricos (potencial estressor). |
-| **perc_mata_nativa**| CLMS Land Cover | Proporção de biodiversidade flora nativa no entorno. |
-| **perc_agricultura** | CLMS Land Cover | Proporção de monocultura (risco de pesticidas). |
-
-</details>
-
-### 🪵 Microdados (IoT da Colmeia)
-
-<details>
-<summary>Clique para expandir as fontes de sensores locais previstas</summary>
-
-| Variável | Fonte Prevista | Interpretação (Sinal Clínico) |
-| :--- | :--- | :--- |
-| **temp_colmeia** | Sensor Interno DHT | Homeostase térmica do enxame. |
-| **umidade_colmeia** | Sensor Interno DHT | Controle hidrométrico interno. |
-| **variacao_peso_7d** | Célula de Carga | Indicador de produtividade (estocagem de mel/pólen). |
-| **atividade_abelhas**| Visão Computacional| Fluxo de entrada e saída (YOLO na entrada). |
-| **anomalia_acustica**| Bioacústica I2S | Assinatura sonora de estresse, ausência de rainha, enxameação. |
-| **mortalidade** | Visão/Campo | Registro presencial de mortalidade excessiva. |
-
-</details>
+A tese central demonstrada é:
+> **Dados Copernicus + Sensores da Colmeia + Inteligência de Dados = Alerta Acionável para Biovigilância Ambiental.**
 
 ---
 
 ## 🧠 Como o Modelo Funciona
 
-O pipeline de Machine Learning é encapsulado no script `beespace_mvp.py`:
+O script `beespace_mvp.py` encapsula todo o pipeline de ML em um algoritmo de **Classificação**, categorizando cada colmeia em uma das seguintes classes:
 
-```mermaid
-graph TD
-    A[Geração de Dados Sintéticos] -->|Regras Estatísticas| B(Base Tabular CSV)
-    B --> C{Pré-processamento e Divisão Treino/Teste}
-    C -->|80% Treino| D[Algoritmo Random Forest]
-    C -->|20% Teste| E[Avaliação do Modelo]
-    D -->|Treinamento| F(Modelo .pkl Salvo)
-    E --> G[Métricas: Precisão, Recall, F1-Score]
-    E --> H[Ranking de Importância de Variáveis]
-    I[Nova Colmeia Hipotética] --> F
-    F -->|Inferência| J(Classificação de Risco: Normal/Atenção/Alerta)
+| Classe | Significado |
+| :--- | :--- |
+| 🟢 **`normal`** | Colmeia e entorno em condição favorável. |
+| 🟡 **`atencao`** | Sinais moderados de risco ambiental, climático, produtivo ou sanitário. |
+| 🔴 **`alerta`** | Combinação crítica de fatores ambientais adversos e sinais anômalos graves na colmeia. |
+
+### Modelo Utilizado
+O MVP utiliza o algoritmo **RandomForestClassifier** (da biblioteca *scikit-learn*). A escolha justifica-se pois o Random Forest:
+1.  Funciona bem com dados tabulares e heterogêneos;
+2.  Combina eficientemente variáveis ambientais (contínuas) e de sensores;
+3.  Permite capturar relações não-lineares;
+4.  Oferece explicabilidade através da análise de importância das variáveis (*feature importance*);
+5.  É robusto e adequado para uma demonstração técnica em contexto de *hackathon*.
+
+---
+
+## 📊 Arquitetura de Dados (Prevista vs. Sintética)
+
+⚠️ **AVISO IMPORTANTE:** Este MVP utiliza **dados sintéticos** gerados programaticamente. Eles não representam medições reais, servindo apenas para demonstrar o funcionamento do pipeline e da lógica do modelo.
+
+A arquitetura foi modelada considerando as seguintes fontes reais previstas:
+
+### 📡 Macrodados (Copernicus & Ambiental)
+
+| Variável | Fonte Prevista | Interpretação |
+| :--- | :--- | :--- |
+| `ndvi` | Sentinel-2 / CLMS | Vigor da vegetação |
+| `evi` | Sentinel-2 | Densidade e atividade vegetal |
+| `ndwi` | Sentinel-2 | Umidade da vegetação |
+| `temp_media` | C3S / ERA5-Land | Temperatura média da área |
+| `precipitacao_7d` | C3S / ERA5-Land | Chuva acumulada nos últimos 7 dias |
+| `umidade_solo` | C3S / ERA5-Land | Condição hídrica do solo |
+| `poluicao_indice` | Sentinel-5P / CAMS | Indicador de poluição atmosférica |
+| `perc_mata_nativa`| CLMS Land Cover | Proporção de vegetação nativa no entorno |
+| `perc_agricultura` | CLMS Land Cover | Proporção de agricultura ou monocultura |
+| `perc_solo_exposto`| CLMS Land Cover | Proporção de solo exposto |
+
+### 🪵 Microdados (Colmeia Inteligente)
+
+| Variável | Fonte Prevista | Interpretação |
+| :--- | :--- | :--- |
+| `temp_colmeia` | Sensor interno | Temperatura interna da colmeia |
+| `umidade_colmeia` | Sensor interno | Umidade interna da colmeia |
+| `variacao_peso_7d`| Célula de carga | Ganho ou perda de peso acumulado em 7 dias |
+| `atividade_abelhas`| Visão computacional | Fluxo de entrada e saída de abelhas |
+| `anomalia_acustica`| Bioacústica | Presença de sinais sonoros anômalos |
+| `mortalidade_observada`| Visão/Campo | Registro presencial de mortalidade excessiva |
+
+---
+
+## 📂 Estrutura do Repositório
+
+```text
+beespace-ml-mvp/
+├── README.md                       # Este arquivo
+├── beespace_mvp.py                 # Script Python principal (MVP)
+├── requirements.txt                # Dependências do projeto
+├── dados_sinteticos_beespace.csv   # Base de dados gerada (após execução)
+└── modelo_beespace_mvp.pkl         # Modelo treinado salvo (após execução)
