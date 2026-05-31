@@ -1,0 +1,87 @@
+# BeeSpace ML MVP 🐝🚀
+
+MVP de Machine Learning para classificação de risco ambiental, produtivo e sanitário em colmeias inteligentes, desenvolvido como prova de conceito para o projeto **BeeSpace** no contexto do **CopernicusLAC Panamá Hackathon 2026**.
+
+## 📄 Sobre o projeto
+
+A **BeeSpace** propõe transformar colmeias inteligentes em biossensores territoriais, conectando dados locais das colmeias com dados geoespaciais e climáticos do programa **Copernicus**.
+
+A solução busca apoiar produtores, pesquisadores, empresas parceiras e iniciativas de proteção da biodiversidade por meio de indicadores baseados em dados de campo, sensores IoT, visão computacional, bioacústica e observação da Terra.
+
+Neste MVP, o objetivo é demonstrar como dados macroambientais (satélite) e microambientais (sensores locais) podem ser integrados em um pipeline de Machine Learning para classificar o estado de saúde e segurança de uma colmeia monitorada.
+
+## 🎯 Objetivo do MVP
+
+O script treina um modelo que classifica cada colmeia inteligente em uma das seguintes classes:
+
+| Classe | Significado |
+| :--- | :--- |
+| **normal** | Colmeia e entorno em condição favorável |
+| **atencao** | Sinais moderados de risco ambiental, climático, produtivo ou sanitário |
+| **alerta** | Combinação crítica de fatores ambientais e sinais anômalos da colmeia |
+
+A prova de conceito demonstra a lógica central da BeeSpace:
+> **Dados Copernicus + Sensores da Colmeia + Inteligência de Dados = Alerta Acionável para Biovigilância Ambiental.**
+
+## 📊 Fontes de dados previstas
+
+Este MVP utiliza **dados sintéticos** gerados programaticamente, mas foi modelado considerando as fontes reais previstas na arquitetura final da BeeSpace.
+
+### 📡 Dados Copernicus e Ambientais (Macro)
+
+| Variável | Fonte prevista | Interpretação |
+| :--- | :--- | :--- |
+| `ndvi` | Sentinel-2 / CLMS | Vigor da vegetação (Índice de Vegetação por Diferença Normalizada) |
+| `evi` | Sentinel-2 | Densidade e atividade vegetal (Enhanced Vegetation Index) |
+| `ndwi` | Sentinel-2 | Umidade da vegetação (Normalized Difference Water Index) |
+| `temp_media` | C3S / ERA5-Land | Temperatura média da área |
+| `precipitacao_7d` | C3S / ERA5-Land | Chuva acumulada nos últimos 7 dias |
+| `umidade_solo` | C3S / ERA5-Land | Condição hídrica do solo |
+| `poluicao_indice` | Sentinel-5P / CAMS | Indicador de poluição atmosférica (aerossóis/NO2) |
+| `perc_mata_nativa`| CLMS Land Cover | Proporção de vegetação nativa no entorno |
+| `perc_agricultura` | CLMS Land Cover | Proporção de agricultura ou monocultura |
+| `perc_solo_exposto`| CLMS Land Cover | Proporção de solo exposto |
+
+### 🪵 Dados da Colmeia Inteligente (Micro)
+
+| Variável | Fonte prevista | Interpretação |
+| :--- | :--- | :--- |
+| `temp_colmeia` | Sensor interno | Temperatura interna da colmeia |
+| `umidade_colmeia` | Sensor interno | Umidade interna da colmeia |
+| `variacao_peso_7d` | Célula de carga | Ganho ou perda de peso acumulado em 7 dias |
+| `atividade_abelhas`| Visão computacional | Fluxo de entrada e saída de abelhas na entrada |
+| `anomalia_acustica`| Bioacústica | Presença de sinais sonoros anômalos (ex: zumbido de estresse) |
+| `mortalidade_observada` | Visão/Campo | Registro de presença de mortalidade excessiva |
+
+## 🛠️ Como o modelo funciona
+
+O script `beespace_mvp.py` executa as seguintes etapas:
+
+1.  **Geração de Dados:** Gera uma base sintética baseada em regras estatísticas que simulam correlações reais entre ambiente e colmeia.
+2.  **Rotulagem (Labeling):** Cria uma regra inicial de rotulagem baseada em heurísticas para separar os dados nas classes *normal*, *atencao* e *alerta*.
+3.  **Treinamento:** Treina um modelo de classificação utilizando o algoritmo **Random Forest**.
+4.  **Avaliação:** Avalia o desempenho do modelo usando matriz de confusão e relatório de classificação (precisão, recall, f1-score).
+5.  **Explicabilidade:** Calcula a importância das variáveis (*Feature Importance*) para entender o que mais influencia o risco.
+6.  **Simulação:** Realiza a previsão de risco para uma nova colmeia hipotética.
+7.  **Persistência:** Salva o modelo treinado (`.pkl`) e a base gerada (`.csv`) para uso futuro.
+
+### Modelo Utilizado
+
+O MVP utiliza o algoritmo `RandomForestClassifier` da biblioteca `scikit-learn`.
+
+A escolha se justifica porque o Random Forest:
+*   Funciona bem com dados tabulares e heterogêneos.
+*   Combina bem variáveis ambientais (contínuas) e de sensores.
+*   Permite capturar relações não lineares complexas.
+*   É robusto contra overfitting para uma prova de conceito.
+*   Oferece interpretabilidade nativa através da importância das variáveis.
+
+## 📂 Estrutura do repositório
+
+```text
+beespace-ml-mvp/
+├── README.md                       # Este arquivo
+├── beespace_mvp.py                 # Script Python principal (MVP)
+├── requirements.txt                # Dependências do projeto
+├── dados_sinteticos_beespace.csv   # Base de dados gerada (após execução)
+└── modelo_beespace_mvp.pkl         # Modelo treinado salvo (após execução)
