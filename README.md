@@ -110,63 +110,67 @@ flowchart TD
 
 ---
 
-## > Estrutura do repositório
-
-=> Organização recomendada para o repositório principal da BeeSpace:
+=> Estrutura atual do repositório principal da BeeSpace, de acordo com os arquivos versionados:
 
 ```text
 BeeSpace/
 ├── README.md
+├── hardware.png
+├── MVP-BeeSpace/
+│   ├── LICENSE
+│   ├── README.md
+│   ├── beespace_mvp.py
+│   ├── dados_sinteticos_beespace.xlsx
+│   ├── gitignore
+│   ├── modelo_beespace_mvp.pkl
+│   └── requirements.docx
 ├── apps/
 │   ├── mobile/
+│   │   ├── .gitignore
+│   │   ├── App.tsx
+│   │   ├── README.md
+│   │   ├── app.json
+│   │   ├── babel.config.js
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── src/
+│   │       ├── components/
+│   │       │   ├── MetricTile.tsx
+│   │       │   ├── ProgressBar.tsx
+│   │       │   └── SectionCard.tsx
+│   │       ├── data/
+│   │       │   └── mockHive.ts
+│   │       ├── services/
+│   │       │   └── api.ts
+│   │       ├── types/
+│   │       │   └── beespace.ts
+│   │       ├── utils/
+│   │       │   └── status.ts
+│   │       └── theme.ts
 │   └── web/
-├── cloud/
-│   ├── dashboard/
-│   ├── infra/
-│   └── mqtt/
-├── computer_vision/
-│   ├── datasets/
-│   ├── inference/
-│   ├── models/
-│   ├── notebooks/
-│   └── training/
-├── copernicus_api/
-│   ├── configs/
-│   ├── notebooks/
-│   ├── src/
-│   └── tests/
-├── data/
-│   ├── processed/
-│   ├── raw/
-│   └── samples/
-├── docs/
-│   ├── architecture/
-│   ├── devrel/
-│   └── research/
-├── firmware/
-│   └── esp32-s3/
-│       ├── include/
-│       ├── lib/
-│       ├── src/
-│       └── test/
-├── hardware/
-│   ├── bom/
-│   ├── enclosure/
-│   └── schematics/
-└── scripts/
+│       └── .gitkeep
+└── firmware/
+    └── esp32-s3/
+        ├── README.md
+        ├── platformio.ini
+        └── src/
+            └── main.cpp
 ```
 
-=> Responsabilidades por diretório:
 
-[ `hardware/` ] esquemáticos, listas de materiais, caixa, sensores, alimentação e prototipagem.
-[ `firmware/` ] código embarcado para ESP32-S3, FreeRTOS, sensores, MQTT e energia.
-[ `computer_vision/` ] datasets, treinamento YOLO, inferência, modelos e notebooks.
-[ `copernicus_api/` ] integrações com Sentinel Hub API, Copernicus Data Space, ERA5, CAMS e HR-VPP.
-[ `cloud/` ] broker MQTT, dashboards, infraestrutura e serviços de ingestão.
-[ `apps/` ] aplicativos mobile e web para manejo, visualização e alertas.
-[ `data/` ] dados brutos, processados e amostras públicas ou sintéticas.
-[ `docs/` ] arquitetura, pesquisa, materiais DevRel e documentação científica.
-[ `scripts/` ] automações para setup, coleta, treinamento e publicação.
+=> Responsabilidades por diretório e arquivo:
+
+[ `README.md` ] documentação geral do projeto BeeSpace.
+[ `hardware.png` ] imagem ilustrativa da arquitetura física da colmeia inteligente.
+[ `MVP-BeeSpace/` ] MVP em Python, dataset sintético, modelo treinado, licença e documentação de requisitos.
+[ `apps/mobile/` ] aplicativo mobile em React Native/Expo para manejo, visualização de métricas e alertas.
+[ `apps/mobile/src/components/` ] componentes reutilizáveis da interface mobile.
+[ `apps/mobile/src/data/` ] dados mockados para demonstração do aplicativo.
+[ `apps/mobile/src/services/` ] camada de serviço/API usada pelo aplicativo.
+[ `apps/mobile/src/types/` ] tipos TypeScript do domínio BeeSpace.
+[ `apps/mobile/src/utils/` ] funções utilitárias do aplicativo.
+[ `apps/web/` ] espaço reservado para a futura aplicação web.
+[ `firmware/esp32-s3/` ] firmware PlatformIO para ESP32-S3, incluindo configuração do projeto e código-fonte embarcado.
 
 ---
 
