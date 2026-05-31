@@ -1,63 +1,46 @@
-# BeeSpace ML MVP
+# 🐝 BeeSpace ML MVP
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Status-MVP-orange?style=for-the-badge" alt="Status MVP">
-  <img src="https://img.shields.io/badge/Contexto-CopernicusLAC_Hackathon_2026-green?style=for-the-badge&logo=copernicus" alt="Hackathon Context">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python" alt="Python Version">
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License MIT">
-</p>
+![Status](https://img.shields.io/badge/Status-MVP-orange?style=for-the-badge)
+![Hackathon](https://img.shields.io/badge/Contexto-CopernicusLAC_Panam%C3%A1_2026-blue?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3.10%2B-green?style=for-the-badge&logo=python)
+![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
-## 📄 Sobre o Projeto
-
-A **BeeSpace** propõe uma solução inovadora de **biovigilância territorial**. Nossa missão é transformar colmeias inteligentes em biossensores territoriais ativos, conectando dados locais das colmeias com dados geoespaciais e climáticos do programa **Copernicus**.
-
-Esta solução busca apoiar produtores, pesquisadores, empresas parceiras e iniciativas de proteção da biodiversidade. Utilizamos indicadores baseados em uma abordagem multidisciplinar que une:
-* Dados de campo e sensores IoT;
-* Visão computacional e bioacústica;
-* Observação da Terra (Satélites).
+**MVP de Machine Learning para classificação de risco ambiental, produtivo e sanitário em colmeias inteligentes**, desenvolvido como prova de conceito para o projeto BeeSpace no contexto do CopernicusLAC Panamá Hackathon 2026.
 
 ---
 
-## 🎯 Objetivo do MVP (Prova de Conceito)
+## 🌍 Sobre o projeto
 
-Este repositório contém o **MVP de Machine Learning** desenvolvido como prova de conceito para o projeto BeeSpace no contexto do **CopernicusLAC Panamá Hackathon 2026**.
+A **BeeSpace** propõe transformar colmeias inteligentes em biossensores territoriais, conectando dados locais das colmeias com dados geoespaciais e climáticos do programa Copernicus.
 
-O objetivo principal é demonstrar como dados macroambientais (satélite) e microambientais (sensores locais) podem ser integrados em um *pipeline* de Machine Learning para classificar o estado de saúde e segurança de uma colmeia monitorada.
+A solução busca apoiar produtores, pesquisadores, empresas parceiras e iniciativas de proteção da biodiversidade por meio de indicadores baseados em dados de campo, sensores IoT, visão computacional, bioacústica e observação da Terra.
 
-A tese central demonstrada é:
-> **Dados Copernicus + Sensores da Colmeia + Inteligência de Dados = Alerta Acionável para Biovigilância Ambiental.**
+Neste MVP, o objetivo é demonstrar como dados macroambientais e microambientais podem ser integrados em um pipeline de Machine Learning para classificar o estado de uma colmeia monitorada.
 
 ---
 
-## 🧠 Como o Modelo Funciona
+## 🎯 Objetivo do MVP
 
-O script `beespace_mvp.py` encapsula todo o pipeline de ML em um algoritmo de **Classificação**, categorizando cada colmeia em uma das seguintes classes:
+O script classifica cada colmeia inteligente em uma das seguintes classes:
 
 | Classe | Significado |
 | :--- | :--- |
-| 🟢 **`normal`** | Colmeia e entorno em condição favorável. |
-| 🟡 **`atencao`** | Sinais moderados de risco ambiental, climático, produtivo ou sanitário. |
-| 🔴 **`alerta`** | Combinação crítica de fatores ambientais adversos e sinais anômalos graves na colmeia. |
+| 🟢 **normal** | Colmeia e entorno em condição favorável |
+| 🟡 **atencao** | Sinais moderados de risco ambiental, climático, produtivo ou sanitário |
+| 🔴 **alerta** | Combinação crítica de fatores ambientais e sinais anômalos da colmeia |
 
-### Modelo Utilizado
-O MVP utiliza o algoritmo **RandomForestClassifier** (da biblioteca *scikit-learn*). A escolha justifica-se pois o Random Forest:
-1.  Funciona bem com dados tabulares e heterogêneos;
-2.  Combina eficientemente variáveis ambientais (contínuas) e de sensores;
-3.  Permite capturar relações não-lineares;
-4.  Oferece explicabilidade através da análise de importância das variáveis (*feature importance*);
-5.  É robusto e adequado para uma demonstração técnica em contexto de *hackathon*.
+A prova de conceito demonstra a lógica central da BeeSpace:
+> **Dados Copernicus + sensores da colmeia + inteligência de dados = alerta acionável para biovigilância ambiental.**
 
 ---
 
-## 📊 Arquitetura de Dados (Prevista vs. Sintética)
+## 📊 Fontes de dados previstas
 
-⚠️ **AVISO IMPORTANTE:** Este MVP utiliza **dados sintéticos** gerados programaticamente. Eles não representam medições reais, servindo apenas para demonstrar o funcionamento do pipeline e da lógica do modelo.
+Este MVP utiliza dados sintéticos, mas foi modelado considerando as fontes reais previstas na arquitetura da BeeSpace.
 
-A arquitetura foi modelada considerando as seguintes fontes reais previstas:
+### 🛰️ Dados Copernicus e ambientais
 
-### 📡 Macrodados (Copernicus & Ambiental)
-
-| Variável | Fonte Prevista | Interpretação |
+| Variável | Fonte prevista | Interpretação |
 | :--- | :--- | :--- |
 | `ndvi` | Sentinel-2 / CLMS | Vigor da vegetação |
 | `evi` | Sentinel-2 | Densidade e atividade vegetal |
@@ -66,29 +49,51 @@ A arquitetura foi modelada considerando as seguintes fontes reais previstas:
 | `precipitacao_7d` | C3S / ERA5-Land | Chuva acumulada nos últimos 7 dias |
 | `umidade_solo` | C3S / ERA5-Land | Condição hídrica do solo |
 | `poluicao_indice` | Sentinel-5P / CAMS | Indicador de poluição atmosférica |
-| `perc_mata_nativa`| CLMS Land Cover | Proporção de vegetação nativa no entorno |
+| `perc_mata_nativa` | CLMS Land Cover | Proporção de vegetação nativa no entorno |
 | `perc_agricultura` | CLMS Land Cover | Proporção de agricultura ou monocultura |
-| `perc_solo_exposto`| CLMS Land Cover | Proporção de solo exposto |
+| `perc_solo_exposto` | CLMS Land Cover | Proporção de solo exposto |
 
-### 🪵 Microdados (Colmeia Inteligente)
+### 🐝 Dados da colmeia inteligente
 
-| Variável | Fonte Prevista | Interpretação |
+| Variável | Fonte prevista | Interpretação |
 | :--- | :--- | :--- |
 | `temp_colmeia` | Sensor interno | Temperatura interna da colmeia |
 | `umidade_colmeia` | Sensor interno | Umidade interna da colmeia |
-| `variacao_peso_7d`| Célula de carga | Ganho ou perda de peso acumulado em 7 dias |
-| `atividade_abelhas`| Visão computacional | Fluxo de entrada e saída de abelhas |
-| `anomalia_acustica`| Bioacústica | Presença de sinais sonoros anômalos |
-| `mortalidade_observada`| Visão/Campo | Registro presencial de mortalidade excessiva |
+| `variacao_peso_7d` | Célula de carga | Ganho ou perda de peso em 7 dias |
+| `atividade_abelhas` | Visão computacional | Fluxo de entrada e saída de abelhas |
+| `anomalia_acustica` | Bioacústica | Sinais sonoros anômalos |
+| `mortalidade_observada` | Visão computacional ou registro de campo | Presença de mortalidade observada |
 
 ---
 
-## 📂 Estrutura do Repositório
+## ⚙️ Como o modelo funciona
+
+O script executa as seguintes etapas:
+1. Gera uma base sintética com variáveis ambientais, territoriais e da colmeia.
+2. Cria uma regra inicial de rotulagem para simular as classes `normal`, `atencao` e `alerta`.
+3. Treina um modelo de classificação usando Random Forest.
+4. Avalia o desempenho com matriz de confusão e relatório de classificação.
+5. Calcula a importância das variáveis para apoiar a explicabilidade.
+6. Simula a previsão de risco para uma nova colmeia.
+7. Salva o modelo treinado e a base sintética em arquivos locais.
+
+### Modelo utilizado
+O MVP utiliza o algoritmo `RandomForestClassifier`, da biblioteca `scikit-learn`. A escolha do Random Forest se justifica porque ele:
+* Funciona bem com dados tabulares;
+* Combina variáveis ambientais, climáticas e de sensores;
+* Permite capturar relações não lineares;
+* É robusto para uma prova de conceito;
+* Permite analisar a importância das variáveis;
+* É mais fácil de explicar em um contexto de hackathon.
+
+---
+
+## 📂 Estrutura sugerida do repositório
 
 ```text
 beespace-ml-mvp/
-├── README.md                       # Este arquivo
-├── beespace_mvp.py                 # Script Python principal (MVP)
-├── requirements.txt                # Dependências do projeto
-├── dados_sinteticos_beespace.csv   # Base de dados gerada (após execução)
-└── modelo_beespace_mvp.pkl         # Modelo treinado salvo (após execução)
+├── README.md
+├── beespace_mvp.py
+├── requirements.txt
+├── dados_sinteticos_beespace.csv
+└── modelo_beespace_mvp.pkl
