@@ -273,7 +273,7 @@ BeeSpace/
 
 <div align="center">
 
-## 🐝 Obrigado, avaliadores!
+## 🐝 Obrigado por sua visita ao nosso repositório!
 
 **A BeeSpace foi criada para provar que uma colmeia pode ser mais do que uma unidade produtiva: ela pode ser uma sentinela viva da biodiversidade.**
 
