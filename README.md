@@ -2,7 +2,7 @@
 
 # 🐝 BeeSpace
 
-## **Do micro da colmeia ao macro dos satélites**
+## **Biodiversidade em Órbita 🛰️**
 
 **Apicultura inteligente 360º para transformar colmeias em biossensores ESG, combinando IoT embarcado, satélites Copernicus, Visão Computacional e Machine Learning para proteger abelhas, produção agrícola e biodiversidade.**
 
