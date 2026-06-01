@@ -261,7 +261,7 @@ BeeSpace/
 
 ## 🏆 Por que a BeeSpace ?
 
-| Critério | Como a BeeSpace responde |
+| Vantagens | Como a BeeSpace responde |
 |---|---|
 | **Impacto real** | Ataca mortalidade de abelhas, baixa previsibilidade produtiva e falta de dados ambientais no campo. |
 | **Diferenciação técnica** | Integra IoT, visão computacional, ML não-supervisionado e satélites Copernicus em uma arquitetura única. |
