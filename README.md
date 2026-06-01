@@ -238,6 +238,26 @@ python -m pip install jupyterlab numpy pandas geopandas shapely rasterio folium 
 jupyter lab JupyterLab/
 ```
 
+.
+.git
+.git/branches
+.git/hooks
+.git/info
+.git/logs
+.git/objects
+.git/refs
+JupyterLab
+JupyterLab/Análise-Topográfica-Microclimas(DEM)
+JupyterLab/Automação.Temporais(Sentinel-1.SAR)
+JupyterLab/Fusão.Macro.Micro
+JupyterLab/NDVI.Sentinel-2
+MVP-BeeSpace
+apps
+apps/mobile
+apps/web
+firmware
+firmware/esp32-s3
+visao.computacional
 Módulos disponíveis:
 
 - `JupyterLab/NDVI.Sentinel-2/` — cálculo e visualização de NDVI.
