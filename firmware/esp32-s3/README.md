@@ -1,5 +1,5 @@
 <div align="center">
-🐝 # BeeSpace Firmware ESP32-S3
+ ## 🐝 BeeSpace Firmware ESP32-S3
 
 ![PlatformIO](https://img.shields.io/badge/PlatformIO-ESP32--S3-orange?style=for-the-badge&logo=platformio)
 ![ESP32-S3](https://img.shields.io/badge/ESP32--S3-DevKitC--1-red?style=for-the-badge&logo=espressif)
