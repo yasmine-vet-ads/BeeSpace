@@ -1,12 +1,12 @@
 <div align="center">
-🐝 BeeSpace Firmware — ESP32-S3
-Firmware de produção para o biossensor inteligente de colmeias BeeSpace.<br>
-Desenvolvido com PlatformIO + Arduino, usando FreeRTOS, MQTT/JSON e estratégia agressiva de deep sleep para operação em campo.
+🐝 # BeeSpace Firmware ESP32-S3
 
 ![PlatformIO](https://img.shields.io/badge/PlatformIO-ESP32--S3-orange?style=for-the-badge&logo=platformio)
-![Arduino](https://img.shields.io/badge/Arduino-Compatible-00979D?style=for-the-badge&logo=arduino&logoColor=white)
-![MQTT](https://img.shields.io/badge/MQTT-Telemetry-660066?style=for-the-badge)
-![FreeRTOS](https://img.shields.io/badge/FreeRTOS-Tasks-2E7D32?style=for-the-badge)
+![ESP32-S3](https://img.shields.io/badge/ESP32--S3-DevKitC--1-red?style=for-the-badge&logo=espressif)
+![FreeRTOS](https://img.shields.io/badge/FreeRTOS-Tasks%20%2B%20EventGroups-2E7D32?style=for-the-badge)
+![MQTT](https://img.shields.io/badge/MQTT-JSON-660066?style=for-the-badge&logo=mqtt)
+
+Firmware de produção para o biossensor inteligente de colmeias BeeSpace, com telemetria ambiental, acústica, peso, fluxo de abelhas e geolocalização antifurto.
 
 </div>
 
@@ -14,139 +14,121 @@ Desenvolvido com PlatformIO + Arduino, usando FreeRTOS, MQTT/JSON e estratégia 
 
 ## ✨ Visão geral
 
-Este firmware coordena sensores ambientais, acústicos, de movimento, peso e fluxo de abelhas em um ESP32-S3. A arquitetura prioriza baixo consumo: o dispositivo acorda por temporizador ou interrupção, coleta apenas os dados necessários, publica telemetria quando há informação nova e retorna ao modo de deep sleep.
+O firmware usa **PlatformIO**, **Arduino Framework**, **FreeRTOS**, **MQTT** e **ArduinoJson** para operar um nó IoT alimentado por bateria. O ESP32-S3 acorda por temporizador de 15 minutos ou por interrupção EXT1, coleta somente os dados necessários, liga o rádio Wi-Fi apenas quando existe telemetria nova e retorna ao deep sleep.
 
 ### Principais recursos
 
-- 🌡️ Coleta ambiental com **BME280** e luminosidade com **BH1750**.
-- 🎙️ Captura acústica por **INMP441** via I2S/DMA.
-- ⚖️ Monitoramento de peso com **HX711**.
-- 🚪 Contagem de entrada/saída com sensores **TCRT5000**.
-- 🛡️ Detecção de movimento/furto com **MPU6050**.
-- 📡 Publicação sob demanda via **MQTT** em payloads JSON.
-- 🔋 Ciclo de energia otimizado com **RTC memory**, **EXT1 wake** e deep sleep.
+A integração do **GPS NEO-6M** foi desenhada para rastreamento de furtos sem comprometer a autonomia: o módulo é alimentado por um MOSFET controlado pelo GPIO 7 e só é ligado quando a posição é realmente necessária.
 
----
+## Arquitetura de execução
+```mermaid
+flowchart TD
+    A[Wake por timer ou EXT1] --> B[Avalia agenda em RTC_DATA_ATTR]
+    B --> C[Cria tasks FreeRTOS]
+    C --> D[TaskI2C: BME280/BH1750/MPU6050 + HX711 + bateria]
+    C --> E[TaskAudio: INMP441 via I2S/DMA]
+    C --> F[TaskGPS: UART + MOSFET + timeout 3 min]
+    D --> G[Mutex de telemetria]
+    E --> G
+    F --> G
+    G --> H[TaskMQTT aguarda EventGroup]
+    H --> I{Há dados novos?}
+    I -- Sim --> J[Wi-Fi + MQTT + JSON]
+    I -- Não --> K[Rádio permanece desligado]
+    J --> L[Deep sleep]
+    K --> L
+```
 
 ## 🧭 Pinout sugerido
 
-| Periférico | Função | GPIO ESP32-S3 | Observações |
-|---|---:|---:|---|
-| I2C comum | SDA | GPIO 8 | Barramento para BME280, MPU6050 e BH1750. |
-| I2C comum | SCL | GPIO 9 | Usar pull-ups de 4,7 kΩ para 3V3. |
-| INMP441 | I2S SCK/BCLK | GPIO 12 | Evita GPIOs de strapping e USB nativo. |
-| INMP441 | I2S WS/LRCLK | GPIO 13 | Configurado como RX mono 32 bits. |
-| INMP441 | I2S SD/DOUT | GPIO 14 | Entrada I2S com DMA. |
-| TCRT5000 entrada | Digital/RTC wake | GPIO 4 | Interrupção com debounce; pino RTC para EXT1 wake. |
-| TCRT5000 saída | Digital/RTC wake | GPIO 5 | Interrupção com debounce; pino RTC para EXT1 wake. |
-| HX711 | DOUT | GPIO 16 | Entrada digital da célula de carga. |
-| HX711 | SCK | GPIO 17 | Clock do HX711. |
-| MPU6050 | INT | GPIO 6 | Interrupção de movimento; acorda por EXT1. |
-| BH1750 | ADDR | GND | Endereço padrão `0x23`. |
-| Bateria | ADC | GPIO 1 | ADC1; divisor resistivo de alta impedância com capacitor de filtro. |
-| Status opcional | LED | GPIO 21 | Pode ser removido em produção para menor consumo. |
+| Bloco | Periférico | Função | GPIO ESP32-S3 | Observações de produção |
+|---|---|---:|---:|---|
+| I2C | BME280 / BH1750 / MPU6050 | SDA | GPIO 8 | Pull-up externo típico de 4,7 kΩ para 3V3. |
+| I2C | BME280 / BH1750 / MPU6050 | SCL | GPIO 9 | Barramento configurado em 400 kHz. |
+| I2S | INMP441 | SCK / BCLK | GPIO 12 | Entrada de áudio com DMA. |
+| I2S | INMP441 | WS / LRCLK | GPIO 13 | Canal mono. |
+| I2S | INMP441 | SD / DOUT | GPIO 14 | Amostras de 32 bits. |
+| EXT1 | TCRT5000 catraca entrada | Digital wake | GPIO 4 | Contador preservado em RTC RAM. |
+| EXT1 | TCRT5000 catraca saída | Digital wake | GPIO 5 | Debounce por ISR. |
+| EXT1 | MPU6050 | INT | GPIO 6 | Wake crítico para suspeita de furto/tombamento. |
+| GPS | NEO-6M | GPS_EN / MOSFET gate | GPIO 7 | HIGH liga o GPS; LOW corta VCC no deep sleep. |
+| GPS | NEO-6M | UART RX do ESP32-S3 | GPIO 43 | Conectar ao TX do GPS. |
+| GPS | NEO-6M | UART TX do ESP32-S3 | GPIO 44 | Conectar ao RX do GPS, se usado. |
+| Peso | HX711 | DOUT | GPIO 16 | Célula de carga. |
+| Peso | HX711 | SCK | GPIO 17 | `power_down()` após leitura. |
+| Energia | Divisor resistivo | ADC bateria | GPIO 1 | ADC1 com atenuação de 11 dB. |
+| Status | LED opcional | Saída | GPIO 21 | Remover ou desabilitar para consumo mínimo. |
+> Evite GPIOs de strapping/boot para periféricos críticos e valide a pinagem real da sua placa ESP32-S3 DevKitC-1 antes de fabricar o PCB.
 
-> [!CAUTION]
-> Evite usar GPIO 0, 3, 45 e 46 para periféricos críticos por serem pinos de strapping/boot ou entrada-only em placas ESP32-S3 comuns. Evite também GPIO 19/20 se a placa usa USB nativo.
+## Estratégia agressiva de Deep Sleep
 
----
+A BeeSpace opera com um **tick RTC de 15 minutos** preservado em `RTC_DATA_ATTR`. Wakes por timer avançam a agenda periódica; wakes por EXT1 são tratados como eventos assíncronos e não antecipam leituras pesadas desnecessárias.
 
-## 📚 Bibliotecas e APIs
+Principais decisões de energia:
 
-O firmware usa as seguintes bibliotecas e APIs:
+- **Wi-Fi sob demanda:** o rádio só é ativado pela `TaskMQTT` quando há dados frescos, contagem de catraca, GPS ou alerta de furto.
+- **Contadores em RTC RAM:** os totais das catracas TCRT5000 sobrevivem ao deep sleep sem depender de flash.
+- **EXT1 para eventos críticos:** GPIOs 4, 5 e 6 acordam o ESP32-S3 para fluxo de abelhas ou suspeita de furto.
+- **GPS com MOSFET:** módulos como NEO-6M podem consumir dezenas de mA mesmo sem fix. Por isso o GPIO 7 controla um MOSFET que corta o VCC do GPS durante deep sleep.
+- **GPS com política restritiva:** a `TaskGPS` liga o MOSFET somente a cada 24 horas ou imediatamente quando o wake EXT1 veio do INT do MPU6050.
+- **Timeout de 3 minutos:** se não houver fix válido, o firmware desliga o GPS, marca `gps.timeout=true` no JSON e libera o fluxo para publicação e retorno ao deep sleep.
 
-| Categoria | Dependências |
+## Payload MQTT
+O payload JSON inclui seções condicionais para reduzir bytes transmitidos:
+
+- `environment`: temperatura, umidade, pressão, altitude barométrica e luminosidade.
+- `audio`: RMS, pico e taxa de cruzamento por zero.
+- `scale`: peso da colmeia.
+- `imu`: aceleração e giroscópio.
+- `bee_counter`: totais e contagens da sessão.
+- `gps`: fix, timeout, satélites, idade do fix, latitude, longitude, altitude, velocidade e curso.
+- `health`: flags de sanidade dos sensores, incluindo `gps_timeout`.
+- `alert`: alerta antifurto e total acumulado de eventos.
+
+## Dependências
+
+As bibliotecas são instaladas pelo PlatformIO via `lib_deps`:
+
+| Categoria | Bibliotecas |
 |---|---|
-| Comunicação | `WiFi.h`, `PubSubClient`, `ArduinoJson` |
-| Sensores I2C | `Wire.h`, `Adafruit_BME280`, `Adafruit_MPU6050`, `BH1750` |
-| Peso | `HX711` |
-| Áudio | `driver/i2s.h` |
-| Sistema | APIs ESP-IDF/Arduino para FreeRTOS, GPIO, ADC e deep sleep (`esp_sleep.h`, `freertos/*`) |
+| JSON/MQTT | ArduinoJson, PubSubClient |
+| GPS | TinyGPSPlus |
+| Sensores I2C | Adafruit BME280 Library, Adafruit MPU6050, Adafruit Unified Sensor, BH1750 |
+| Peso | HX711 |
+| Sistema | Arduino Core ESP32, FreeRTOS, driver I2S, ESP-IDF sleep APIs |
 
----
+## Compilação via CLI
 
-## 🚀 Compilação
+1. Instale o PlatformIO Core.
+2. Entre na pasta do firmware.
+3. Compile o ambiente do ESP32-S3.
 
-Execute a build a partir da pasta do firmware:
+
 
 ```bash
 cd firmware/esp32-s3
 pio run
 ```
 
-> [!IMPORTANT]
-> As credenciais de Wi-Fi/MQTT estão simuladas via `#define` em `src/main.cpp`. Antes do uso em campo, substitua por segredo de build, arquivo de configuração protegido ou fluxo de provisioning.
+Para acompanhar logs seriais após gravar a placa:
 
----
-## ⏱️ Agenda de aquisição
-
-| Dado | Frequência configurada | Comportamento de energia/MQTT |
-|---|---:|---|
-| BME280 + BH1750 | A cada 120 minutos | Sensores ambientais só são energizados/lidos no tick agendado. |
-| INMP441 | A cada 30 minutos | O microfone I2S captura por 5 minutos com DMA e publica métricas acústicas. |
-| HX711 | A cada 7 dias | A balança é ligada, lida com fator/offset calibrados e colocada em `power_down()` após a leitura. |
-| MQTT | Sob demanda | Wi-Fi/MQTT só conecta quando há dado novo, contagem de catraca ou alerta crítico. |
-
-A agenda usa um tick RTC de 15 minutos preservado em `RTC_DATA_ATTR`. Wakes por EXT1 não avançam o relógio periódico, então eventos de catraca/furto não antecipam leituras de BME280/BH1750, áudio ou HX711.
-
----
-
-## 🏗️ Arquitetura de execução
-
-```mermaid
-flowchart TD
-    A[Wake: timer ou EXT1] --> B[Avalia agenda RTC]
-    B --> C{Há coleta pendente?}
-    C -- Ambiente/Luz --> D[Task sensores I2C]
-    C -- Áudio --> E[Task INMP441 + DMA]
-    C -- Peso --> F[Task HX711]
-    C -- Evento crítico --> G[ISR + contadores RTC]
-    D --> H[Telemetria protegida por mutex]
-    E --> H
-    F --> H
-    G --> H
-    H --> I{hasNewDataToPublish?}
-    I -- Sim --> J[Ativa Wi-Fi + MQTT]
-    I -- Não --> K[Pula rádio]
-    J --> L[Publica JSON]
-    K --> M[Deep sleep]
-    L --> M
+```bash
+pio device monitor -b 115200
 ```
+## Checklist de campo
 
-### Fluxo resumido
-
-1. O ESP32-S3 acorda por temporizador ou por EXT1.
-2. A agenda preservada em `RTC_DATA_ATTR` define quais sensores precisam operar.
-3. Tasks FreeRTOS coletam dados e atualizam a telemetria compartilhada com mutex.
-4. Event groups sinalizam conclusão de coleta.
-5. A task MQTT ativa Wi-Fi apenas quando `hasNewDataToPublish()` detecta dados frescos, contadores de abelhas ou alerta de furto.
-6. O dispositivo retorna ao deep sleep após publicar ou confirmar que não há dados novos.
-
+- [ ] Calibrar `HX711_CALIBRATION_FACTOR` e `HX711_OFFSET` com peso conhecido.
+- [ ] Validar o divisor resistivo de bateria e a curva `batteryPercentFromVoltage()`.
+- [ ] Confirmar polaridade do MOSFET: `GPS_EN_PIN` HIGH deve alimentar o GPS e LOW deve cortar VCC.
+- [ ] Testar cold start e warm start do NEO-6M em céu aberto.
+- [ ] Confirmar que o INT do MPU6050 acorda via EXT1 e dispara publicação crítica com GPS.
+- [ ] Substituir credenciais simuladas de Wi-Fi/MQTT por provisioning seguro.
+- [ ] Medir consumo real em deep sleep, captura de áudio, fix GPS e transmissão MQTT.
+- [ ] 
 ---
 
-## 💤 Estratégia de baixo consumo
-
-Durante o deep sleep, a abordagem prática no Arduino é manter sensores críticos em pinos RTC e usar `esp_sleep_enable_ext1_wakeup()` para acordar com eventos da catraca TCRT5000 ou do pino `INT` do MPU6050.
-
-Os contadores ficam em `RTC_DATA_ATTR`, preservados entre sleeps. O firmware semeia o primeiro evento a partir da máscara EXT1 e permanece uma pequena janela ativa contando pulsos por ISR com debounce.
-
-> [!TIP]
-> Para contagem contínua em sono profundo total, a evolução recomendada é mover os TCRT5000 para o coprocessador ULP RISC-V do ESP32-S3 ou para um contador externo ultrabaixo consumo alimentado permanentemente.
-
----
-
-## ✅ Checklist antes de campo
-
-- [ ] Calibrar fator e offset da célula de carga HX711.
-- [ ] Validar divisores resistivos e leitura ADC da bateria.
-- [ ] Trocar credenciais simuladas por secrets/provisioning.
-- [ ] Confirmar pull-ups I2C de 4,7 kΩ para 3V3.
-- [ ] Medir consumo real em deep sleep e durante transmissão MQTT.
-- [ ] Testar acordar por EXT1 com TCRT5000 e MPU6050.
-
----
 <div align="center">
 
-**BeeSpace** — telemetria inteligente para colmeias conectadas.
+**BeeSpace** — biossensoriamento inteligente e rastreável para colmeias conectadas.
 
 </div>
