@@ -1,30 +1,34 @@
 /**
- * BeeSpace - Firmware ESP32-S3 para biossensor inteligente de colmeias
+ * BeeSpace - firmware de produção para biossensor inteligente de colmeias.
  *
- * Plataforma: PlatformIO / Arduino Framework
- * MCU: ESP32-S3
- * Arquitetura: FreeRTOS + I2S DMA + I2C + MQTT/JSON + Deep Sleep
+ * Alvo: ESP32-S3 DevKitC-1 / PlatformIO / Arduino Framework.
+ * Arquitetura: FreeRTOS + EventGroups + mutexes + MQTT/JSON + deep sleep agressivo.
+ *
+ * O GPS é energizado por MOSFET somente quando há necessidade real:
+ *   - uma vez a cada 24 horas para atualização de geolocalização; ou
+ *   - imediatamente em wake EXT1 causado pelo INT do MPU6050, indicando possível furto.
  */
 
 #include <Arduino.h>
 #include <math.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#include <freertos/semphr.h>
 #include <freertos/event_groups.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <Wire.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <TinyGPSPlus.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <BH1750.h>
 #include <HX711.h>
 #include <driver/i2s.h>
+#include <esp_idf_version.h>
 #include <esp_sleep.h>
 #include <esp_wifi.h>
-#include <esp_idf_version.h>
 
 // -----------------------------------------------------------------------------
 // Credenciais simuladas: em produção, substituir por NVS/provisioning seguro.
@@ -40,27 +44,32 @@
 #define DEVICE_ID "beespace-hive-001"
 
 // -----------------------------------------------------------------------------
-// Configuração de ciclo de energia, agenda de aquisição e comunicação.
+// Agenda, timeouts e janelas de operação.
 // -----------------------------------------------------------------------------
 static constexpr uint64_t SCHEDULER_TICK_SECONDS = 15ULL * 60ULL;
-static constexpr uint32_t ACTIVE_COUNT_WINDOW_MS = 8000;   // Janela pós-wake para contar fluxo óptico.
+static constexpr uint32_t ACTIVE_COUNT_WINDOW_MS = 8000;
 static constexpr uint32_t SENSOR_TASK_TIMEOUT_MS = 15000;
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;
 static constexpr uint32_t MQTT_CONNECT_TIMEOUT_MS = 15000;
 static constexpr uint32_t MQTT_PUBLISH_GRACE_MS = 500;
+static constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3UL * 60UL * 1000UL;
+static constexpr uint32_t GPS_BAUD = 9600;
 
 static constexpr uint32_t ENVIRONMENT_INTERVAL_MINUTES = 120;
 static constexpr uint32_t AUDIO_INTERVAL_MINUTES = 30;
+static constexpr uint32_t GPS_INTERVAL_HOURS = 24;
 static constexpr uint32_t SCALE_INTERVAL_DAYS = 7;
 static constexpr uint32_t ENVIRONMENT_INTERVAL_TICKS =
     (ENVIRONMENT_INTERVAL_MINUTES * 60UL) / SCHEDULER_TICK_SECONDS;
 static constexpr uint32_t AUDIO_INTERVAL_TICKS =
     (AUDIO_INTERVAL_MINUTES * 60UL) / SCHEDULER_TICK_SECONDS;
+static constexpr uint32_t GPS_INTERVAL_TICKS =
+    (GPS_INTERVAL_HOURS * 60UL * 60UL) / SCHEDULER_TICK_SECONDS;
 static constexpr uint32_t SCALE_INTERVAL_TICKS =
     (SCALE_INTERVAL_DAYS * 24UL * 60UL * 60UL) / SCHEDULER_TICK_SECONDS;
 
 // -----------------------------------------------------------------------------
-// Pinout recomendado para ESP32-S3 DevKitC-1.
+// Pinout ESP32-S3.
 // -----------------------------------------------------------------------------
 static constexpr gpio_num_t PIN_I2C_SDA = GPIO_NUM_8;
 static constexpr gpio_num_t PIN_I2C_SCL = GPIO_NUM_9;
@@ -73,46 +82,47 @@ static constexpr gpio_num_t PIN_TCRT_ENTRY = GPIO_NUM_4;
 static constexpr gpio_num_t PIN_TCRT_EXIT = GPIO_NUM_5;
 static constexpr gpio_num_t PIN_MPU_INT = GPIO_NUM_6;
 
+static constexpr uint8_t GPS_EN_PIN = 7;
+static constexpr int8_t GPS_RX_PIN = 43; // ESP32-S3 RX <- TX do NEO-6M.
+static constexpr int8_t GPS_TX_PIN = 44; // ESP32-S3 TX -> RX do NEO-6M.
+
 static constexpr uint8_t PIN_HX711_DOUT = 16;
 static constexpr uint8_t PIN_HX711_SCK = 17;
 static constexpr uint8_t PIN_BATTERY_ADC = 1;
 static constexpr uint8_t PIN_STATUS_LED = 21;
 
-// EXT1 usa máscara de bits por número de GPIO. Mantemos apenas pinos RTC.
 static constexpr uint64_t WAKEUP_PIN_MASK =
     (1ULL << static_cast<uint8_t>(PIN_TCRT_ENTRY)) |
     (1ULL << static_cast<uint8_t>(PIN_TCRT_EXIT)) |
     (1ULL << static_cast<uint8_t>(PIN_MPU_INT));
 
 // -----------------------------------------------------------------------------
-// Configuração dos sensores.
+// Sensores e calibração.
 // -----------------------------------------------------------------------------
 static constexpr uint8_t BME280_ADDR = 0x76;
+static constexpr uint8_t MPU6050_ADDR = 0x68;
 static constexpr float SEALEVELPRESSURE_HPA = 1013.25F;
-static constexpr float HX711_CALIBRATION_FACTOR = -7050.0F; // Calibrar com peso conhecido.
-static constexpr long HX711_OFFSET = 0L;                  // Ajustar após tara em bancada/NVS.
-
-static constexpr float BATTERY_DIVIDER_RATIO = 2.0F;       // Ex.: 100 kΩ / 100 kΩ.
+static constexpr float HX711_CALIBRATION_FACTOR = -7050.0F;
+static constexpr long HX711_OFFSET = 0L;
+static constexpr float BATTERY_DIVIDER_RATIO = 2.0F;
 static constexpr float ADC_REFERENCE_MV = 3300.0F;
 static constexpr uint16_t ADC_MAX_READING = 4095;
 
-// INMP441 normalmente entrega 24 bits válidos alinhados em palavra de 32 bits.
 static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
 static constexpr uint32_t I2S_SAMPLE_RATE = 16000;
 static constexpr size_t I2S_DMA_SAMPLES = 512;
 static constexpr uint32_t AUDIO_CAPTURE_MS = 5UL * 60UL * 1000UL;
 
-// Debounce das catracas ópticas: impede múltiplas contagens por oscilação do feixe.
 static constexpr uint32_t TCRT_DEBOUNCE_US = 6000;
 
-// -----------------------------------------------------------------------------
-// Estruturas compartilhadas entre tasks.
-// -----------------------------------------------------------------------------
+
 struct HiveTelemetry {
   char deviceId[32];
   uint32_t bootCount;
   uint32_t scheduleTick;
   esp_sleep_wakeup_cause_t wakeupCause;
+  uint64_t ext1WakeMask;
+
   uint32_t beeEntriesTotal;
   uint32_t beeExitsTotal;
   uint32_t beeEntriesSession;
@@ -126,6 +136,7 @@ struct HiveTelemetry {
   float altitudeM;
   float weightKg;
   float luminosityLux;
+  float weightKg;
   float batteryVoltage;
   uint8_t batteryPct;
 
@@ -140,18 +151,31 @@ struct HiveTelemetry {
   int32_t audioPeak;
   float zeroCrossingRate;
 
+  double latitude;
+  double longitude;
+  double altitudeGpsM;
+  double speedKmph;
+  double courseDeg;
+  uint32_t gpsAgeMs;
+  uint32_t gpsSatellites;
+  bool gpsFixValid;
+  bool gpsTimeout;
+  bool gpsPowerCycled;
+
   bool environmentFresh;
   bool audioFresh;
   bool scaleFresh;
   bool batteryFresh;
   bool imuFresh;
   bool countersFresh;
+  bool gpsFresh;
 
   bool bmeOk;
   bool bh1750Ok;
   bool hx711Ok;
   bool mpuOk;
   bool audioOk;
+  bool gpsOk;
   bool mqttOk;
 };
 
@@ -167,16 +191,27 @@ struct AcquisitionSchedule {
   bool firstBoot;
   bool timerWake;
   bool extWake;
+  bool mpuWake;
   bool environmentDue;
   bool audioDue;
   bool scaleDue;
+  bool gpsDue;
   bool eventWake;
   bool shouldReadBattery;
   bool shouldReadMpu;
   bool publishExpected;
 };
 
+static HiveTelemetry telemetry = {};
 static AcquisitionSchedule acquisitionSchedule = {};
+static SemaphoreHandle_t telemetryMutex;
+static SemaphoreHandle_t i2cMutex;
+static EventGroupHandle_t cycleEvents;
+
+static constexpr EventBits_t BIT_AUDIO_DONE = BIT0;
+static constexpr EventBits_t BIT_I2C_DONE = BIT1;
+static constexpr EventBits_t BIT_GPS_DONE = BIT2;
+static constexpr EventBits_t BIT_MQTT_DONE = BIT3;
 
 static WiFiClient wifiClient;
 static PubSubClient mqttClient(wifiClient);
@@ -184,15 +219,17 @@ static Adafruit_BME280 bme;
 static Adafruit_MPU6050 mpu;
 static BH1750 lightMeter;
 static HX711 scale;
+static HardwareSerial gpsSerial(1);
+static TinyGPSPlus gps;
 
-// Contadores preservados em RTC RAM entre ciclos de deep sleep.
+// RTC RAM: preservada em deep sleep.
 RTC_DATA_ATTR uint32_t rtcBootCount = 0;
 RTC_DATA_ATTR uint32_t rtcScheduleTick = 0;
 RTC_DATA_ATTR uint32_t rtcBeeEntriesTotal = 0;
 RTC_DATA_ATTR uint32_t rtcBeeExitsTotal = 0;
 RTC_DATA_ATTR uint32_t rtcTheftEventsTotal = 0;
+RTC_DATA_ATTR uint32_t rtcLastGpsTick = 0;
 
-// Variáveis alteradas por ISR devem ser voláteis e protegidas por spinlock.
 static portMUX_TYPE isrMux = portMUX_INITIALIZER_UNLOCKED;
 static volatile uint32_t sessionEntries = 0;
 static volatile uint32_t sessionExits = 0;
@@ -200,13 +237,10 @@ static volatile uint32_t lastEntryPulseUs = 0;
 static volatile uint32_t lastExitPulseUs = 0;
 static volatile bool theftInterruptSeen = false;
 
-// -----------------------------------------------------------------------------
-// ISRs: execução mínima, sem Serial, sem alocação dinâmica e sem bloqueios longos.
-// -----------------------------------------------------------------------------
 void IRAM_ATTR onEntryBeamBreak() {
   const uint32_t now = micros();
-  if ((now - lastEntryPulseUs) > TCRT_DEBOUNCE_US) {
     portENTER_CRITICAL_ISR(&isrMux);
+  if ((now - lastEntryPulseUs) > TCRT_DEBOUNCE_US) {
     sessionEntries++;
     lastEntryPulseUs = now;
     portEXIT_CRITICAL_ISR(&isrMux);
@@ -215,12 +249,12 @@ void IRAM_ATTR onEntryBeamBreak() {
 
 void IRAM_ATTR onExitBeamBreak() {
   const uint32_t now = micros();
-  if ((now - lastExitPulseUs) > TCRT_DEBOUNCE_US) {
     portENTER_CRITICAL_ISR(&isrMux);
+  if ((now - lastExitPulseUs) > TCRT_DEBOUNCE_US) {
     sessionExits++;
     lastExitPulseUs = now;
-    portEXIT_CRITICAL_ISR(&isrMux);
   }
+      portEXIT_CRITICAL_ISR(&isrMux);
 }
 
 void IRAM_ATTR onMpuMotionAlert() {
@@ -229,11 +263,8 @@ void IRAM_ATTR onMpuMotionAlert() {
   portEXIT_CRITICAL_ISR(&isrMux);
 }
 
-// -----------------------------------------------------------------------------
-// Utilitários de telemetria e energia.
-// -----------------------------------------------------------------------------
 static uint8_t batteryPercentFromVoltage(float voltage) {
-  // Curva aproximada Li-ion 1S sob baixa carga. Ajustar após caracterização real.
+
   if (voltage >= 4.20F) return 100;
   if (voltage >= 4.10F) return 90;
   if (voltage >= 4.00F) return 80;
@@ -262,40 +293,44 @@ static float readBatteryVoltage() {
 static bool isFirstBoot() {
   return rtcBootCount == 1;
 }
-
+static bool didWakeFromMpu(uint64_t ext1WakeMask) {
+  return (ext1WakeMask & (1ULL << static_cast<uint8_t>(PIN_MPU_INT))) != 0;
+}
 static void updateSchedulerTick(esp_sleep_wakeup_cause_t wakeupCause) {
-  // O relógio de agenda avança apenas em wakes por temporizador. Eventos EXT1
-  // não contam como amostra periódica, evitando que furto/catraca antecipe leituras.
   if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
     rtcScheduleTick++;
   }
 }
 
-static AcquisitionSchedule determineAcquisitionSchedule(esp_sleep_wakeup_cause_t wakeupCause) {
+static AcquisitionSchedule determineAcquisitionSchedule(esp_sleep_wakeup_cause_t wakeupCause,
+                                                        uint64_t ext1WakeMask) {
   AcquisitionSchedule schedule = {};
   schedule.firstBoot = isFirstBoot();
   schedule.timerWake = wakeupCause == ESP_SLEEP_WAKEUP_TIMER;
   schedule.extWake = wakeupCause == ESP_SLEEP_WAKEUP_EXT1;
+  schedule.mpuWake = schedule.extWake && didWakeFromMpu(ext1WakeMask);
   schedule.environmentDue = schedule.firstBoot ||
                             (schedule.timerWake && (rtcScheduleTick % ENVIRONMENT_INTERVAL_TICKS == 0));
   schedule.audioDue = schedule.firstBoot ||
                       (schedule.timerWake && (rtcScheduleTick % AUDIO_INTERVAL_TICKS == 0));
   schedule.scaleDue = schedule.firstBoot ||
                       (schedule.timerWake && (rtcScheduleTick % SCALE_INTERVAL_TICKS == 0));
+  schedule.gpsDue = schedule.mpuWake || schedule.firstBoot ||
+                    (schedule.timerWake && ((rtcScheduleTick - rtcLastGpsTick) >= GPS_INTERVAL_TICKS));
   schedule.eventWake = schedule.extWake;
-  schedule.publishExpected = schedule.environmentDue || schedule.audioDue || schedule.scaleDue || schedule.eventWake;
+  schedule.publishExpected = schedule.environmentDue || schedule.audioDue || schedule.scaleDue ||
+                             schedule.gpsDue || schedule.eventWake;
   schedule.shouldReadBattery = schedule.publishExpected;
   schedule.shouldReadMpu = schedule.publishExpected;
   return schedule;
 }
 
-static void seedWakeupEventsFromExt1() {
+static void seedWakeupEventsFromExt1(uint64_t wakeMask) {
   if (!acquisitionSchedule.extWake) {
     return;
   }
 
-  const uint64_t wakeMask = esp_sleep_get_ext1_wakeup_status();
-  portENTER_CRITICAL(&isrMux);
+    portENTER_CRITICAL(&isrMux);
   if (wakeMask & (1ULL << static_cast<uint8_t>(PIN_TCRT_ENTRY))) {
     sessionEntries++;
   }
@@ -309,8 +344,8 @@ static void seedWakeupEventsFromExt1() {
 }
 
 static bool hasNewDataToPublish(const HiveTelemetry &snapshot) {
-  return snapshot.environmentFresh || snapshot.audioFresh || snapshot.scaleFresh ||
-         snapshot.batteryFresh || snapshot.imuFresh || snapshot.countersFresh || snapshot.theftAlert;
+  return snapshot.environmentFresh || snapshot.audioFresh || snapshot.scaleFresh || snapshot.batteryFresh ||
+         snapshot.imuFresh || snapshot.countersFresh || snapshot.gpsFresh || snapshot.theftAlert;
 }
 
 static void copyCountersToTelemetry() {
@@ -337,7 +372,7 @@ static void copyCountersToTelemetry() {
     telemetry.beeExitsTotal = rtcBeeExitsTotal;
     telemetry.theftAlert = theft;
     telemetry.theftEventsTotal = rtcTheftEventsTotal;
-    telemetry.countersFresh = (entries > 0 || exits > 0);
+    telemetry.countersFresh = entries > 0 || exits > 0;
     xSemaphoreGive(telemetryMutex);
   }
 }
@@ -353,9 +388,6 @@ static const char *wakeupCauseToString(esp_sleep_wakeup_cause_t cause) {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Inicialização de periféricos.
-// -----------------------------------------------------------------------------
 static bool setupI2sMicrophone() {
   const i2s_config_t i2sConfig = {
       .mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_RX),
@@ -392,7 +424,6 @@ static bool setupI2sMicrophone() {
 }
 
 static void setupMpuInterruptMode() {
-  // Configura o MPU6050 para gerar INT em movimento brusco/tombamento.
   mpu.setHighPassFilter(MPU6050_HIGHPASS_0_63_HZ);
   mpu.setMotionDetectionThreshold(6);
   mpu.setMotionDetectionDuration(20);
@@ -401,16 +432,12 @@ static void setupMpuInterruptMode() {
   mpu.setMotionInterrupt(true);
 }
 
-// -----------------------------------------------------------------------------
-// Task 1: Áudio I2S com DMA. Calcula métricas leves em borda para economizar TX.
-// -----------------------------------------------------------------------------
-static void audioTask(void *parameter) {
+static void TaskAudio(void *parameter) {
   (void)parameter;
 
   if (!acquisitionSchedule.audioDue) {
     xEventGroupSetBits(cycleEvents, BIT_AUDIO_DONE);
     vTaskDelete(nullptr);
-    return;
   }
 
   float rms = 0.0F;
@@ -435,13 +462,13 @@ static void audioTask(void *parameter) {
 
       const size_t samplesRead = bytesRead / sizeof(int32_t);
       for (size_t i = 0; i < samplesRead; i++) {
-        const int32_t sample = buffer[i] >> 14; // Reduz 24 bits efetivos para evitar overflow.
+        const int32_t sample = buffer[i] >> 14;
         const int32_t absSample = abs(sample);
         peak = max(peak, absSample);
         const int64_t sample64 = static_cast<int64_t>(sample);
         sumSquares += static_cast<uint64_t>(sample64 * sample64);
-        if (sampleCount > 0 && ((sample >= 0 && previousSample < 0) || (sample < 0 && previousSample >= 0))) {
-          zeroCrossings++;
+        if (sampleCount > 0 && ((sample >= 0 && previousSample < 0) ||
+                                (sample < 0 && previousSample >= 0))) {
         }
         previousSample = sample;
         sampleCount++;
@@ -469,57 +496,45 @@ static void audioTask(void *parameter) {
   vTaskDelete(nullptr);
 }
 
-// -----------------------------------------------------------------------------
-// Task 2: Sensores ambientais, balança, luminosidade, bateria e MPU6050.
-// -----------------------------------------------------------------------------
-static void sensorTask(void *parameter) {
+static void TaskI2C(void *parameter) {
   (void)parameter;
 
   HiveTelemetry local = {};
 
-  if (acquisitionSchedule.environmentDue) {
-    local.bmeOk = bme.begin(BME280_ADDR, &Wire);
-    local.bh1750Ok = lightMeter.begin(BH1750::ONE_TIME_HIGH_RES_MODE, 0x23, &Wire);
+  if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
+    if (acquisitionSchedule.environmentDue) {
+      local.bmeOk = bme.begin(BME280_ADDR, &Wire);
+      local.bh1750Ok = lightMeter.begin(BH1750::ONE_TIME_HIGH_RES_MODE, 0x23, &Wire);
 
-    if (local.bmeOk) {
-      local.temperatureC = bme.readTemperature();
-      local.humidityPct = bme.readHumidity();
-      local.pressureHpa = bme.readPressure() / 100.0F;
-      local.altitudeM = bme.readAltitude(SEALEVELPRESSURE_HPA);
+      if (local.bmeOk) {
+        local.temperatureC = bme.readTemperature();
+        local.humidityPct = bme.readHumidity();
+        local.pressureHpa = bme.readPressure() / 100.0F;
+        local.altitudeM = bme.readAltitude(SEALEVELPRESSURE_HPA);
+      }
+
     }
 
-    if (local.bh1750Ok) {
-      delay(180); // Tempo máximo de conversão no modo one-shot de alta resolução.
-      local.luminosityLux = lightMeter.readLightLevel();
+      if (local.bh1750Ok) {
+        delay(180);
+        local.luminosityLux = lightMeter.readLightLevel();
+    if (acquisitionSchedule.shouldReadMpu) {
+      local.mpuOk = mpu.begin(MPU6050_ADDR, &Wire);
+      if (local.mpuOk) {
+        setupMpuInterruptMode();
+        sensors_event_t accel;
+        sensors_event_t gyro;
+        sensors_event_t temp;
+        mpu.getEvent(&accel, &gyro, &temp);
+        local.accelX = accel.acceleration.x;
+        local.accelY = accel.acceleration.y;
+        local.accelZ = accel.acceleration.z;
+        local.gyroX = gyro.gyro.x;
+        local.gyroY = gyro.gyro.y;
+        local.gyroZ = gyro.gyro.z;
+      }
     }
-  }
-
-  if (acquisitionSchedule.scaleDue) {
-    scale.begin(PIN_HX711_DOUT, PIN_HX711_SCK);
-    scale.set_scale(HX711_CALIBRATION_FACTOR);
-    scale.set_offset(HX711_OFFSET); // Não tarar em campo para não zerar o peso real da colmeia.
-    local.hx711Ok = scale.wait_ready_timeout(1000);
-    if (local.hx711Ok) {
-      local.weightKg = scale.get_units(10);
-    }
-    scale.power_down();
-  }
-
-  if (acquisitionSchedule.shouldReadMpu) {
-    local.mpuOk = mpu.begin(0x68, &Wire);
-    if (local.mpuOk) {
-      setupMpuInterruptMode();
-      sensors_event_t accel;
-      sensors_event_t gyro;
-      sensors_event_t temp;
-      mpu.getEvent(&accel, &gyro, &temp);
-      local.accelX = accel.acceleration.x;
-      local.accelY = accel.acceleration.y;
-      local.accelZ = accel.acceleration.z;
-      local.gyroX = gyro.gyro.x;
-      local.gyroY = gyro.gyro.y;
-      local.gyroZ = gyro.gyro.z;
-    }
+    xSemaphoreGive(i2cMutex);
   }
 
   if (acquisitionSchedule.shouldReadBattery) {
@@ -532,8 +547,8 @@ static void sensorTask(void *parameter) {
     telemetry.humidityPct = local.humidityPct;
     telemetry.pressureHpa = local.pressureHpa;
     telemetry.altitudeM = local.altitudeM;
-    telemetry.weightKg = local.weightKg;
     telemetry.luminosityLux = local.luminosityLux;
+    telemetry.weightKg = local.weightKg;
     telemetry.batteryVoltage = local.batteryVoltage;
     telemetry.batteryPct = local.batteryPct;
     telemetry.accelX = local.accelX;
@@ -553,13 +568,88 @@ static void sensorTask(void *parameter) {
     xSemaphoreGive(telemetryMutex);
   }
 
-  xEventGroupSetBits(cycleEvents, BIT_SENSORS_DONE);
+  xEventGroupSetBits(cycleEvents, BIT_I2C_DONE);
   vTaskDelete(nullptr);
 }
 
-// -----------------------------------------------------------------------------
-// Comunicação Wi-Fi/MQTT com reconexão robusta e timeouts para campo.
-// -----------------------------------------------------------------------------
+static void TaskGPS(void *parameter) {
+  (void)parameter;
+
+  if (!acquisitionSchedule.gpsDue) {
+    digitalWrite(GPS_EN_PIN, LOW);
+    xEventGroupSetBits(cycleEvents, BIT_GPS_DONE);
+    vTaskDelete(nullptr);
+  }
+
+  bool fixValid = false;
+  bool timedOut = false;
+  uint32_t satellites = 0;
+  uint32_t fixAgeMs = 0;
+  double latitude = 0.0;
+  double longitude = 0.0;
+  double altitudeM = 0.0;
+  double speedKmph = 0.0;
+  double courseDeg = 0.0;
+
+  digitalWrite(GPS_EN_PIN, HIGH);
+  delay(250);
+  gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+
+  const uint32_t startMs = millis();
+  while ((millis() - startMs) < GPS_FIX_TIMEOUT_MS) {
+    while (gpsSerial.available() > 0) {
+      gps.encode(static_cast<char>(gpsSerial.read()));
+    }
+
+    satellites = gps.satellites.isValid() ? gps.satellites.value() : 0;
+    fixAgeMs = gps.location.age();
+    if (gps.location.isValid() && gps.location.age() < 5000 && satellites >= 3) {
+      fixValid = true;
+      latitude = gps.location.lat();
+      longitude = gps.location.lng();
+      altitudeM = gps.altitude.isValid() ? gps.altitude.meters() : 0.0;
+      speedKmph = gps.speed.isValid() ? gps.speed.kmph() : 0.0;
+      courseDeg = gps.course.isValid() ? gps.course.deg() : 0.0;
+      break;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
+  if (!fixValid) {
+    timedOut = true;
+  }
+
+  // A tentativa periódica é registrada mesmo em timeout para evitar drenar
+  // bateria repetindo cold starts de 3 minutos a cada tick de 15 minutos.
+  // Em wake de furto, não mexemos na cadência periódica de 24 horas.
+  if (!acquisitionSchedule.mpuWake) {
+    rtcLastGpsTick = rtcScheduleTick;
+  }
+
+  gpsSerial.end();
+  digitalWrite(GPS_EN_PIN, LOW);
+
+  if (xSemaphoreTake(telemetryMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    telemetry.latitude = latitude;
+    telemetry.longitude = longitude;
+    telemetry.altitudeGpsM = altitudeM;
+    telemetry.speedKmph = speedKmph;
+    telemetry.courseDeg = courseDeg;
+    telemetry.gpsAgeMs = fixAgeMs;
+    telemetry.gpsSatellites = satellites;
+    telemetry.gpsFixValid = fixValid;
+    telemetry.gpsTimeout = timedOut;
+    telemetry.gpsPowerCycled = true;
+    telemetry.gpsFresh = true;
+    telemetry.gpsOk = fixValid;
+    xSemaphoreGive(telemetryMutex);
+  }
+
+  xEventGroupSetBits(cycleEvents, BIT_GPS_DONE);
+  vTaskDelete(nullptr);
+}
+
 static bool connectWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
@@ -594,18 +684,20 @@ static bool connectMqtt() {
 }
 
 static size_t buildTelemetryJson(char *buffer, size_t bufferSize, const HiveTelemetry &snapshot) {
-  StaticJsonDocument<1536> doc;
+  StaticJsonDocument<2048> doc;
 
   doc["device_id"] = snapshot.deviceId;
   doc["boot_count"] = snapshot.bootCount;
   doc["schedule_tick"] = snapshot.scheduleTick;
   doc["wakeup"] = wakeupCauseToString(snapshot.wakeupCause);
+  doc["ext1_wake_mask"] = snapshot.ext1WakeMask;
 
   JsonObject schedule = doc["schedule"].to<JsonObject>();
   schedule["tick_seconds"] = SCHEDULER_TICK_SECONDS;
   schedule["environment_interval_min"] = ENVIRONMENT_INTERVAL_MINUTES;
   schedule["audio_interval_min"] = AUDIO_INTERVAL_MINUTES;
   schedule["audio_window_min"] = AUDIO_CAPTURE_MS / 60000UL;
+  schedule["gps_interval_hours"] = GPS_INTERVAL_HOURS;
   schedule["scale_interval_days"] = SCALE_INTERVAL_DAYS;
 
   JsonObject fresh = doc["fresh"].to<JsonObject>();
@@ -615,6 +707,7 @@ static size_t buildTelemetryJson(char *buffer, size_t bufferSize, const HiveTele
   fresh["battery"] = snapshot.batteryFresh;
   fresh["imu"] = snapshot.imuFresh;
   fresh["counters"] = snapshot.countersFresh;
+  fresh["gps"] = snapshot.gpsFresh;
 
   if (snapshot.countersFresh || snapshot.theftAlert) {
     JsonObject counters = doc["bee_counter"].to<JsonObject>();
@@ -660,6 +753,22 @@ static size_t buildTelemetryJson(char *buffer, size_t bufferSize, const HiveTele
     battery["voltage"] = snapshot.batteryVoltage;
     battery["percent"] = snapshot.batteryPct;
   }
+      if (snapshot.gpsFresh) {
+    JsonObject gpsJson = doc["gps"].to<JsonObject>();
+    gpsJson["enabled_by_theft"] = acquisitionSchedule.mpuWake;
+    gpsJson["power_cycled"] = snapshot.gpsPowerCycled;
+    gpsJson["fix_valid"] = snapshot.gpsFixValid;
+    gpsJson["timeout"] = snapshot.gpsTimeout;
+    gpsJson["satellites"] = snapshot.gpsSatellites;
+    gpsJson["age_ms"] = snapshot.gpsAgeMs;
+    if (snapshot.gpsFixValid) {
+      gpsJson["lat"] = snapshot.latitude;
+      gpsJson["lon"] = snapshot.longitude;
+      gpsJson["altitude_m"] = snapshot.altitudeGpsM;
+      gpsJson["speed_kmph"] = snapshot.speedKmph;
+      gpsJson["course_deg"] = snapshot.courseDeg;
+    }
+  }
 
   JsonObject health = doc["health"].to<JsonObject>();
   if (snapshot.environmentFresh) {
@@ -675,6 +784,10 @@ static size_t buildTelemetryJson(char *buffer, size_t bufferSize, const HiveTele
   if (snapshot.audioFresh) {
     health["audio"] = snapshot.audioOk;
   }
+  if (snapshot.gpsFresh) {
+    health["gps"] = snapshot.gpsOk;
+    health["gps_timeout"] = snapshot.gpsTimeout;
+  }
   health["mqtt"] = snapshot.mqttOk;
 
   JsonObject alert = doc["alert"].to<JsonObject>();
@@ -689,27 +802,32 @@ static void publishCriticalAlertIfNeeded(const HiveTelemetry &snapshot) {
     return;
   }
 
-  StaticJsonDocument<256> alertDoc;
+  StaticJsonDocument<384> alertDoc;
   alertDoc["device_id"] = snapshot.deviceId;
   alertDoc["priority"] = "critical";
   alertDoc["type"] = "theft_or_tipover";
   alertDoc["wakeup"] = wakeupCauseToString(snapshot.wakeupCause);
   alertDoc["events_total"] = snapshot.theftEventsTotal;
+  if (snapshot.gpsFixValid) {
+    alertDoc["lat"] = snapshot.latitude;
+    alertDoc["lon"] = snapshot.longitude;
+  }
 
-  char payload[256];
+
+  char payload[384];
   serializeJson(alertDoc, payload, sizeof(payload));
   mqttClient.publish(MQTT_TOPIC_ALERTS, payload, false);
 }
 
-static void communicationTask(void *parameter) {
+static void TaskMQTT(void *parameter) {
   (void)parameter;
 
-  const uint32_t dataWaitMs = acquisitionSchedule.audioDue
-                                  ? (AUDIO_CAPTURE_MS + SENSOR_TASK_TIMEOUT_MS)
-                                  : SENSOR_TASK_TIMEOUT_MS;
+  const uint32_t dataWaitMs = (acquisitionSchedule.audioDue ? AUDIO_CAPTURE_MS : 0) +
+                              (acquisitionSchedule.gpsDue ? GPS_FIX_TIMEOUT_MS : 0) +
+                              SENSOR_TASK_TIMEOUT_MS;
   xEventGroupWaitBits(
       cycleEvents,
-      BIT_AUDIO_DONE | BIT_SENSORS_DONE,
+      BIT_AUDIO_DONE | BIT_I2C_DONE | BIT_GPS_DONE,
       pdFALSE,
       pdTRUE,
       pdMS_TO_TICKS(dataWaitMs));
@@ -727,7 +845,7 @@ static void communicationTask(void *parameter) {
     snapshot.mqttOk = true;
     publishCriticalAlertIfNeeded(snapshot);
 
-    char payload[1536];
+    char payload[2048];
     const size_t length = buildTelemetryJson(payload, sizeof(payload), snapshot);
     if (length > 0 && length < sizeof(payload)) {
       published = mqttClient.publish(MQTT_TOPIC_TELEMETRY, payload, false);
@@ -753,9 +871,6 @@ static void communicationTask(void *parameter) {
   vTaskDelete(nullptr);
 }
 
-// -----------------------------------------------------------------------------
-// Deep sleep: temporizador + EXT1 para TCRT5000 e MPU6050.
-// -----------------------------------------------------------------------------
 static uint64_t calculateNextTimerWakeSeconds() {
   const uint64_t activeSeconds = (millis() + 999ULL) / 1000ULL;
   if (activeSeconds >= SCHEDULER_TICK_SECONDS) {
@@ -767,9 +882,6 @@ static uint64_t calculateNextTimerWakeSeconds() {
 static void configureWakeupSources(uint64_t timerWakeSeconds) {
   esp_sleep_enable_timer_wakeup(timerWakeSeconds * 1000000ULL);
 
-  // Estratégia: TCRT5000 e MPU6050 INT em nível alto acordam via EXT1.
-  // Se o módulo óptico for ativo-baixo, inverter o sinal em hardware ou ajustar para
-  // ESP_EXT1_WAKEUP_ANY_LOW quando o core/IDF usado oferecer esse modo.
   esp_sleep_enable_ext1_wakeup(WAKEUP_PIN_MASK, ESP_EXT1_WAKEUP_ANY_HIGH);
 
   gpio_pullup_dis(PIN_TCRT_ENTRY);
@@ -781,37 +893,40 @@ static void configureWakeupSources(uint64_t timerWakeSeconds) {
 }
 
 static void enterDeepSleep() {
-  digitalWrite(PIN_STATUS_LED, LOW);
+    digitalWrite(GPS_EN_PIN, LOW);  
+    digitalWrite(PIN_STATUS_LED, LOW);
   configureWakeupSources(calculateNextTimerWakeSeconds());
   Serial.flush();
   esp_deep_sleep_start();
 }
 
-// -----------------------------------------------------------------------------
-// Setup principal: inicializa recursos, cria tasks e encerra o ciclo em sleep.
-// -----------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
   delay(200);
 
   pinMode(PIN_STATUS_LED, OUTPUT);
   digitalWrite(PIN_STATUS_LED, HIGH);
+  pinMode(GPS_EN_PIN, OUTPUT);
+  digitalWrite(GPS_EN_PIN, LOW);
 
   rtcBootCount++;
   const esp_sleep_wakeup_cause_t wakeupCause = esp_sleep_get_wakeup_cause();
+  const uint64_t ext1WakeMask = wakeupCause == ESP_SLEEP_WAKEUP_EXT1 ? esp_sleep_get_ext1_wakeup_status() : 0ULL;
   updateSchedulerTick(wakeupCause);
-  acquisitionSchedule = determineAcquisitionSchedule(wakeupCause);
+  acquisitionSchedule = determineAcquisitionSchedule(wakeupCause, ext1WakeMask);
 
   memset(&telemetry, 0, sizeof(telemetry));
   strlcpy(telemetry.deviceId, DEVICE_ID, sizeof(telemetry.deviceId));
   telemetry.bootCount = rtcBootCount;
   telemetry.scheduleTick = rtcScheduleTick;
   telemetry.wakeupCause = wakeupCause;
+  telemetry.ext1WakeMask = ext1WakeMask;
   telemetry.beeEntriesTotal = rtcBeeEntriesTotal;
   telemetry.beeExitsTotal = rtcBeeExitsTotal;
   telemetry.theftEventsTotal = rtcTheftEventsTotal;
 
   telemetryMutex = xSemaphoreCreateMutex();
+  i2cMutex = xSemaphoreCreateMutex();
   cycleEvents = xEventGroupCreate();
 
   pinMode(PIN_TCRT_ENTRY, INPUT_PULLDOWN);
@@ -820,7 +935,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_TCRT_ENTRY), onEntryBeamBreak, RISING);
   attachInterrupt(digitalPinToInterrupt(PIN_TCRT_EXIT), onExitBeamBreak, RISING);
   attachInterrupt(digitalPinToInterrupt(PIN_MPU_INT), onMpuMotionAlert, RISING);
-  seedWakeupEventsFromExt1();
+  seedWakeupEventsFromExt1(ext1WakeMask);
 
   analogReadResolution(12);
   analogSetPinAttenuation(PIN_BATTERY_ADC, ADC_11db);
@@ -828,7 +943,6 @@ void setup() {
   Wire.begin(static_cast<int>(PIN_I2C_SDA), static_cast<int>(PIN_I2C_SCL));
   Wire.setClock(400000);
 
-  // Se acordou por EXT1, mantém uma janela curta ativa para capturar pulsos próximos.
   if (telemetry.wakeupCause == ESP_SLEEP_WAKEUP_EXT1) {
     const uint32_t windowStart = millis();
     while ((millis() - windowStart) < ACTIVE_COUNT_WINDOW_MS) {
@@ -836,9 +950,10 @@ void setup() {
     }
   }
 
-  xTaskCreatePinnedToCore(audioTask, "audio_i2s", 8192, nullptr, 2, nullptr, 0);
-  xTaskCreatePinnedToCore(sensorTask, "sensors", 8192, nullptr, 2, nullptr, 1);
-  xTaskCreatePinnedToCore(communicationTask, "mqtt", 8192, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(TaskAudio, "TaskAudio", 8192, nullptr, 2, nullptr, 0);
+  xTaskCreatePinnedToCore(TaskI2C, "TaskI2C", 8192, nullptr, 2, nullptr, 1);
+  xTaskCreatePinnedToCore(TaskGPS, "TaskGPS", 6144, nullptr, acquisitionSchedule.mpuWake ? 3 : 2, nullptr, 1);
+  xTaskCreatePinnedToCore(TaskMQTT, "TaskMQTT", 8192, nullptr, 1, nullptr, 1);
 
   xEventGroupWaitBits(
       cycleEvents,
@@ -846,6 +961,7 @@ void setup() {
       pdFALSE,
       pdTRUE,
       pdMS_TO_TICKS((acquisitionSchedule.audioDue ? AUDIO_CAPTURE_MS : 0) +
+                    (acquisitionSchedule.gpsDue ? GPS_FIX_TIMEOUT_MS : 0) +
                     SENSOR_TASK_TIMEOUT_MS + WIFI_CONNECT_TIMEOUT_MS + MQTT_CONNECT_TIMEOUT_MS + 5000));
 
   detachInterrupt(digitalPinToInterrupt(PIN_TCRT_ENTRY));
@@ -856,5 +972,5 @@ void setup() {
 }
 
 void loop() {
-  // O ciclo de vida é task-driven e termina em deep sleep dentro de setup().
+// Ciclo task-driven: setup() cria as tasks, aguarda MQTT e retorna ao deep sleep.
 }
