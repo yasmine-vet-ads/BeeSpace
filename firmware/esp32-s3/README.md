@@ -124,7 +124,6 @@ pio device monitor -b 115200
 - [ ] Confirmar que o INT do MPU6050 acorda via EXT1 e dispara publicação crítica com GPS.
 - [ ] Substituir credenciais simuladas de Wi-Fi/MQTT por provisioning seguro.
 - [ ] Medir consumo real em deep sleep, captura de áudio, fix GPS e transmissão MQTT.
-- [ ] 
 ---
 
 <div align="center">
