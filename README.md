@@ -218,7 +218,7 @@ jupyter lab JupyterLab/
 
 ---
 
-## 🧑‍⚖️ Roteiro rápido para juízes
+## 🧑‍⚖️ Roteiro rápido
 
 | Perfil de avaliação | Comece por | O que observar |
 |---|---|---|
@@ -259,7 +259,7 @@ BeeSpace/
 
 ---
 
-## 🏆 Por que a BeeSpace é forte para hackathon?
+## 🏆 Por que a BeeSpace ?
 
 | Critério | Como a BeeSpace responde |
 |---|---|
