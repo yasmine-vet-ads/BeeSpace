@@ -281,7 +281,7 @@ Se este projeto ajudou você a enxergar o campo com mais dados, ciência e impac
 
 <br />
 
-**BeeSpace — inteligência para proteger abelhas, agricultores e ecossistemas.**
+**BeeSpace**
 
 🐝 · 🛰️ · 🧠 · 🌱
 
