@@ -198,8 +198,6 @@ BeeSpace/
 
 ---
 
-## 🏆 Por que a BeeSpace ?
-
 | Vantagens | Como a BeeSpace responde |
 |---|---|
 | **Impacto real** | Ataca mortalidade de abelhas, baixa previsibilidade produtiva e falta de dados ambientais no campo. |
