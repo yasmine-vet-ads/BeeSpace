@@ -158,6 +158,7 @@ flowchart LR
 
 ---
 
+|  |   |   |
 |---|---|---|
 | **Negócios e impacto** | Este README  | Dor real, tese ESG, aplicabilidade no agro e narrativa 360º |
 | **Engenharia embarcada** | `firmware/esp32-s3/` | Sensores, autonomia, telemetria, FreeRTOS e PlatformIO |
