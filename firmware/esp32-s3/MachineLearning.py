@@ -5,7 +5,7 @@ normal de uma colmeia instrumentada com ESP32-S3 e telemetria MQTT/JSON.
 
 Uso rápido no terminal:
 
-    python firmware/esp32-s3/IA.py
+    python firmware/esp32-s3/MachineLearning.py
 
 Saída esperada:
 - Geração de dados sintéticos de 30 dias.
