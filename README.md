@@ -42,8 +42,6 @@
 
 ---
 
-## ✨ Visão em uma frase
-
 A **BeeSpace** conecta o que acontece **dentro da colmeia** com o que muda **ao redor dela no território**, criando uma camada de inteligência para apicultores, pesquisadores, empresas e iniciativas de conservação que precisam decidir rápido, com evidência e impacto mensurável.
 
 ---
@@ -125,12 +123,12 @@ flowchart LR
 
 ## 🧭 Módulos do Sistema
 
-| Ícone | Nome do módulo | Stack principal | Acesso |
-|---:|---|---|---|
-| 🔌 | **Firmware IoT** | ESP32-S3, FreeRTOS, Arduino, PlatformIO, I2S, GPS, HX711, sensores ambientais, MOSFET, MQTT/JSON | [Acessar Módulo](./firmware/esp32-s3) |
-| 🛰️ | **Ciência de Dados Espaciais** | Python, JupyterLab, Copernicus, Sentinel-2 NDVI, Sentinel-1 SAR, DEM, STAC, Rasterio, GeoPandas | [Acessar Módulo](./JupyterLab) |
-| 👁️ | **Visão Computacional** | YOLOv8, Roboflow, Python, inferência por imagem, classificação de alvéolos e composição do favo | [Acessar Módulo](./visao.computacional) |
-| 🧠 | **Inteligência Artificial / ML** | Python, scikit-learn, Isolation Forest, telemetria, séries temporais, anomalias e alertas | [Acessar Módulo](./firmware/esp32-s3/IA.py) |
+| Nome do módulo | Stack principal | Acesso |
+|---|---|---|
+| **Firmware IoT** | ESP32-S3, FreeRTOS, Arduino, PlatformIO, I2S, GPS, HX711, sensores ambientais, MOSFET, MQTT/JSON | [Acessar Módulo](./firmware/esp32-s3) |
+| **Ciência de Dados Espaciais** | Python, JupyterLab, Copernicus, Sentinel-2 NDVI, Sentinel-1 SAR, DEM, STAC, Rasterio, GeoPandas | [Acessar Módulo](./JupyterLab) |
+| **Visão Computacional** | YOLOv8, Roboflow, Python, inferência por imagem, classificação de alvéolos e composição do favo | [Acessar Módulo](./visao.computacional) |
+| **Inteligência Artificial / ML** | Python, scikit-learn, Isolation Forest, telemetria, séries temporais, anomalias e alertas | [Acessar Módulo](./firmware/esp32-s3/IA.py) |
 
 ---
 
@@ -147,67 +145,9 @@ flowchart LR
 
 ---
 
-## ⚡ Quickstart / Como Reproduzir
+> **Trilha recomendada:** comece pelo firmware e pela IA de anomalias; depois explore visão computacional e geoespacial para entender a proposta 360º.
 
-> **Trilha recomendada para avaliadores:** comece pelo firmware e pela IA de anomalias; depois explore visão computacional e geoespacial para entender a proposta 360º.
-
-### 1. Clonar o repositório
-
-```bash
-git clone https://github.com/<seu-usuario>/BeeSpace.git
-cd BeeSpace
-```
-
-### 2. Entender a proposta visual de hardware
-
-```bash
-xdg-open hardware.png
-```
-
-> Em ambientes sem interface gráfica, abra `hardware.png` diretamente pelo GitHub.
-
-### 3. Compilar o firmware ESP32-S3
-
-```bash
-cd firmware/esp32-s3
-pio run
-```
-
-Para gravar e acompanhar a placa:
-
-```bash
-pio run --target upload
-pio device monitor
-```
-
-### 4. Executar a IA de anomalias
-
-```bash
-cd ../../
-python firmware/esp32-s3/IA.py
-```
-
-### 5. Rodar a visão computacional com YOLOv8
-
-```bash
-python visao.computacional/COD.py --model best.pt --image exemplos/favo.jpg --output-dir saidas
-```
-
-> Substitua `best.pt` pelo peso treinado no Roboflow e `exemplos/favo.jpg` por uma imagem de favo disponível no seu ambiente.
-
-### 6. Abrir o laboratório geoespacial
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install jupyterlab numpy pandas geopandas shapely rasterio folium matplotlib pystac-client requests
-jupyter lab JupyterLab/
-```
-
----
-
-## 🧪 O que a BeeSpace mede
+##  O que a BeeSpace mede
 
 | Camada | Sinais observados | Decisão habilitada |
 |---|---|---|
@@ -222,7 +162,7 @@ jupyter lab JupyterLab/
 
 | Perfil de avaliação | Comece por | O que observar |
 |---|---|---|
-| **Negócios e impacto** | Este README + `hardware.png` | Dor real, tese ESG, aplicabilidade no agro e narrativa 360º |
+| **Negócios e impacto** | Este README  | Dor real, tese ESG, aplicabilidade no agro e narrativa 360º |
 | **Engenharia embarcada** | `firmware/esp32-s3/` | Sensores, autonomia, telemetria, FreeRTOS e PlatformIO |
 | **Dados e IA** | `firmware/esp32-s3/IA.py` e `MVP-BeeSpace/` | Anomalias, modelos tabulares e geração de alertas |
 | **Geoespacial** | `JupyterLab/` | NDVI, Sentinel-1 SAR, DEM e fusão Geo-IoT |
@@ -240,7 +180,6 @@ BeeSpace/
 ├── MVP-BeeSpace/               # MVP tabular em Python com artefatos de modelo
 ├── apps/mobile/                # Protótipo mobile Expo/React Native
 ├── apps/web/                   # Base reservada para dashboard web
-├── hardware.png                # Visual do conceito físico da colmeia inteligente
 └── README.md                   # Documentação principal
 ```
 
@@ -275,7 +214,7 @@ BeeSpace/
 
 ## 🐝 Obrigado por sua visita ao nosso repositório!
 
-**A BeeSpace foi criada para provar que uma colmeia pode ser mais do que uma unidade produtiva: ela pode ser uma sentinela viva da biodiversidade.**
+**A BeeSpace foi criada para provar que uma colmeia pode ser mais do que uma unidade produtiva. ela pode ser uma sentinela viva da biodiversidade.**
 
 Se este projeto ajudou você a enxergar o campo com mais dados, ciência e impacto, a missão já começou.
 
