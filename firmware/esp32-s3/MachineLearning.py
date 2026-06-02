@@ -1,4 +1,4 @@
-"""IA BeeSpace - Detecção de anomalias para colmeias inteligentes.
+""" BeeSpace - Detecção de anomalias para colmeias inteligentes.
 
 Este script treina um modelo não supervisionado para aprender o comportamento
 normal de uma colmeia instrumentada com ESP32-S3 e telemetria MQTT/JSON.
