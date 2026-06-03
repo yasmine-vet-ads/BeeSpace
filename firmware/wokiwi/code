@@ -1,1 +1,560 @@
+/**
+ * BeeSpace - ESP32-S3 hive telemetry firmware (Arduino + FreeRTOS).
+ *
+ * Flowchart implemented here:
+ *   Hive[Sensors]
+ *      -> Edge[ESP32-S3: FreeRTOS tasks, MQTT JSON Payload, Aggressive Deep Sleep]
+ *      -- MQTT --> AI[Gateway/Backend]
+ *
+ * Backend integration note:
+ *   The JSON telemetry published on MQTT_TOPIC_TELEMETRY is intended to be
+ *   consumed by the gateway script `IA.py`. That backend can train or infer
+ *   with `modelo_beespace_isolation_forest.pkl` and emit an "Alerta explicável"
+ *   when environmental, acoustic, weight, bee-flow, or anti-theft anomalies are
+ *   detected.
+ *
+ * Libraries expected by the Arduino/PlatformIO project:
+ *   - ArduinoJson
+ *   - PubSubClient
+ *   - Adafruit BME280 Library + Adafruit Unified Sensor
+ *   - BH1750
+ *   - Adafruit MPU6050
+ *   - HX711
+ *   - TinyGPSPlus
+ *
+ * If a sensor is not present in the lab/Wokwi simulation, the code keeps running
+ * and generates plausible simulated readings while still performing full bus and
+ * device initialization attempts.
+ */
 
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <PubSubClient.h>
+#include <WiFi.h>
+#include <Wire.h>
+
+#include <Adafruit_BME280.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <BH1750.h>
+#include <HX711.h>
+#include <TinyGPSPlus.h>
+
+#include <driver/i2s.h>
+#include <esp_idf_version.h>
+#include <esp_sleep.h>
+#include <esp_system.h>
+#include <math.h>
+#include <time.h>
+
+// -----------------------------------------------------------------------------
+// User configuration placeholders.
+// Replace these values during deployment or load them from NVS/provisioning.
+// -----------------------------------------------------------------------------
+static const char *WIFI_SSID = "YOUR_WIFI_SSID";
+static const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+
+static const char *MQTT_SERVER = "mqtt.example.com";
+static const uint16_t MQTT_PORT = 1883;
+static const char *MQTT_USER = "YOUR_MQTT_USER";
+static const char *MQTT_PASSWORD = "YOUR_MQTT_PASSWORD";
+static const char *MQTT_CLIENT_ID = "beespace-esp32s3-hive-001";
+static const char *MQTT_TOPIC_TELEMETRY = "beespace/hives/hive-001/telemetry";
+
+static const char *DEVICE_ID = "beespace-hive-001";
+
+// -----------------------------------------------------------------------------
+// Timing and power policy.
+// -----------------------------------------------------------------------------
+static constexpr uint32_t SENSOR_PERIOD_SECONDS = 60;         // X seconds.
+static constexpr uint64_t DEEP_SLEEP_SECONDS = 30ULL * 60ULL; // 30 minutes.
+static constexpr uint32_t WIFI_TIMEOUT_MS = 20000;
+static constexpr uint32_t MQTT_TIMEOUT_MS = 10000;
+static constexpr float MIN_BATTERY_VOLTAGE_TO_PUBLISH = 3.45F;
+
+// -----------------------------------------------------------------------------
+// ESP32-S3 pinout. Adjust to match your PCB/Wokwi diagram.
+// -----------------------------------------------------------------------------
+static constexpr uint8_t PIN_I2C_SDA = 8;
+static constexpr uint8_t PIN_I2C_SCL = 9;
+
+static constexpr uint8_t PIN_INMP441_BCLK = 12;
+static constexpr uint8_t PIN_INMP441_WS = 13;
+static constexpr uint8_t PIN_INMP441_DOUT = 14;
+
+static constexpr uint8_t PIN_HX711_DOUT = 16;
+static constexpr uint8_t PIN_HX711_SCK = 17;
+static constexpr uint8_t PIN_TCRT5000 = 4;
+static constexpr uint8_t PIN_BATTERY_ADC = 1;
+
+static constexpr uint8_t PIN_GPS_RX = 43; // ESP32-S3 RX <- GPS TX.
+static constexpr uint8_t PIN_GPS_TX = 44; // ESP32-S3 TX -> GPS RX.
+static constexpr uint32_t GPS_BAUD = 9600;
+
+// -----------------------------------------------------------------------------
+// Sensor calibration.
+// -----------------------------------------------------------------------------
+static constexpr uint8_t BME280_ADDR_PRIMARY = 0x76;
+static constexpr uint8_t BME280_ADDR_SECONDARY = 0x77;
+static constexpr float HX711_CALIBRATION_FACTOR = -7050.0F;
+static constexpr float BATTERY_DIVIDER_RATIO = 2.0F; // e.g. 100k/100k divider.
+static constexpr float ADC_REFERENCE_VOLTAGE = 3.3F;
+static constexpr float ADC_MAX_READING = 4095.0F;
+static constexpr i2s_port_t I2S_PORT = I2S_NUM_0;
+static constexpr uint32_t I2S_SAMPLE_RATE = 16000;
+static constexpr size_t I2S_SAMPLE_COUNT = 512;
+
+// -----------------------------------------------------------------------------
+// FreeRTOS synchronization bits.
+// -----------------------------------------------------------------------------
+static constexpr EventBits_t BIT_SENSORS_READY = BIT0;
+static constexpr EventBits_t BIT_MQTT_DONE = BIT1;
+static constexpr EventBits_t BIT_LOW_BATTERY = BIT2;
+
+struct SensorData {
+  float temperatureC = NAN;
+  float humidityPct = NAN;
+  float pressureHpa = NAN;
+  float luminosityLux = NAN;
+  float weightKg = NAN;
+  int tcrt5000 = 0;
+  float audioRms = NAN;
+  int32_t audioPeak = 0;
+  float accelX = NAN;
+  float accelY = NAN;
+  float accelZ = NAN;
+  float gyroX = NAN;
+  float gyroY = NAN;
+  float gyroZ = NAN;
+  double latitude = 0.0;
+  double longitude = 0.0;
+  bool gpsFix = false;
+  bool theftAlert = false;
+  float batteryVoltage = NAN;
+  const char *mode = "normal";
+  uint32_t timestamp = 0;
+};
+
+Adafruit_BME280 bme280;
+BH1750 bh1750;
+HX711 hx711;
+Adafruit_MPU6050 mpu6050;
+TinyGPSPlus gps;
+HardwareSerial GPSSerial(1);
+
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+EventGroupHandle_t systemEvents;
+SemaphoreHandle_t sensorMutex;
+SensorData latestData;
+
+bool bmeOk = false;
+bool bh1750Ok = false;
+bool hx711Ok = false;
+bool mpuOk = false;
+bool i2sOk = false;
+
+RTC_DATA_ATTR double rtcLastLatitude = 0.0;
+RTC_DATA_ATTR double rtcLastLongitude = 0.0;
+RTC_DATA_ATTR bool rtcHasGpsBaseline = false;
+RTC_DATA_ATTR uint32_t rtcBootCounter = 0;
+
+// -----------------------------------------------------------------------------
+// Utility helpers.
+// -----------------------------------------------------------------------------
+float simulatedFloat(float minValue, float maxValue) {
+  const float unit = static_cast<float>(esp_random() % 10000UL) / 10000.0F;
+  return minValue + unit * (maxValue - minValue);
+}
+
+uint32_t currentTimestamp() {
+  time_t now = time(nullptr);
+  if (now > 1700000000) {
+    return static_cast<uint32_t>(now);
+  }
+  return millis() / 1000UL;
+}
+
+void copyLatestData(SensorData &copy) {
+  xSemaphoreTake(sensorMutex, portMAX_DELAY);
+  copy = latestData;
+  xSemaphoreGive(sensorMutex);
+}
+
+float readBatteryVoltage() {
+  const uint16_t raw = analogRead(PIN_BATTERY_ADC);
+
+  // In many Wokwi/lab setups the ADC pin is not wired; return a stable simulated
+  // LiPo voltage instead of publishing zero volts.
+  if (raw < 8) {
+    return simulatedFloat(3.75F, 4.10F);
+  }
+
+  const float adcVoltage = (static_cast<float>(raw) / ADC_MAX_READING) * ADC_REFERENCE_VOLTAGE;
+  return adcVoltage * BATTERY_DIVIDER_RATIO;
+}
+
+void configureI2S() {
+  const i2s_config_t config = {
+      .mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_RX),
+      .sample_rate = I2S_SAMPLE_RATE,
+      .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
+      .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+#if ESP_IDF_VERSION_MAJOR >= 5
+      .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+#else
+      .communication_format = I2S_COMM_FORMAT_I2S,
+#endif
+      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+      .dma_buf_count = 4,
+      .dma_buf_len = 256,
+      .use_apll = false,
+      .tx_desc_auto_clear = false,
+      .fixed_mclk = 0,
+  };
+
+  const i2s_pin_config_t pins = {
+      .bck_io_num = PIN_INMP441_BCLK,
+      .ws_io_num = PIN_INMP441_WS,
+      .data_out_num = I2S_PIN_NO_CHANGE,
+      .data_in_num = PIN_INMP441_DOUT,
+  };
+
+  i2sOk = i2s_driver_install(I2S_PORT, &config, 0, nullptr) == ESP_OK;
+  if (i2sOk) {
+    i2sOk = i2s_set_pin(I2S_PORT, &pins) == ESP_OK;
+    i2s_zero_dma_buffer(I2S_PORT);
+  }
+}
+
+void initializeSensors() {
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  Wire.setClock(400000);
+
+  bmeOk = bme280.begin(BME280_ADDR_PRIMARY, &Wire) || bme280.begin(BME280_ADDR_SECONDARY, &Wire);
+  bh1750Ok = bh1750.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire);
+  mpuOk = mpu6050.begin(0x68, &Wire);
+  if (mpuOk) {
+    mpu6050.setAccelerometerRange(MPU6050_RANGE_8_G);
+    mpu6050.setGyroRange(MPU6050_RANGE_500_DEG);
+    mpu6050.setFilterBandwidth(MPU6050_BAND_21_HZ);
+  }
+
+  hx711.begin(PIN_HX711_DOUT, PIN_HX711_SCK);
+  hx711.set_scale(HX711_CALIBRATION_FACTOR);
+  hx711Ok = hx711.is_ready();
+  if (hx711Ok) {
+    hx711.tare(5);
+  }
+
+  pinMode(PIN_TCRT5000, INPUT_PULLUP);
+  analogReadResolution(12);
+  analogSetPinAttenuation(PIN_BATTERY_ADC, ADC_11db);
+
+  GPSSerial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+  configureI2S();
+}
+
+float readAudioRms(int32_t &peakOut) {
+  if (!i2sOk) {
+    peakOut = static_cast<int32_t>(simulatedFloat(2500.0F, 10000.0F));
+    return simulatedFloat(0.02F, 0.12F);
+  }
+
+  int32_t samples[I2S_SAMPLE_COUNT];
+  size_t bytesRead = 0;
+  const esp_err_t result = i2s_read(I2S_PORT, samples, sizeof(samples), &bytesRead, pdMS_TO_TICKS(500));
+  if (result != ESP_OK || bytesRead == 0) {
+    peakOut = static_cast<int32_t>(simulatedFloat(2500.0F, 10000.0F));
+    return simulatedFloat(0.02F, 0.12F);
+  }
+
+  const size_t count = bytesRead / sizeof(samples[0]);
+  double sumSquares = 0.0;
+  int32_t peak = 0;
+  for (size_t i = 0; i < count; ++i) {
+    // INMP441 produces 24-bit data left-aligned in a 32-bit I2S word.
+    const int32_t sample = samples[i] >> 8;
+    const int32_t magnitude = abs(sample);
+    peak = max(peak, magnitude);
+    const double normalized = static_cast<double>(sample) / 8388608.0;
+    sumSquares += normalized * normalized;
+  }
+
+  peakOut = peak;
+  return sqrt(sumSquares / static_cast<double>(count));
+}
+
+void readGpsForWindow(SensorData &data, uint32_t windowMs) {
+  const uint32_t start = millis();
+  while (millis() - start < windowMs) {
+    while (GPSSerial.available() > 0) {
+      gps.encode(GPSSerial.read());
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  if (gps.location.isValid()) {
+    data.latitude = gps.location.lat();
+    data.longitude = gps.location.lng();
+    data.gpsFix = true;
+  } else {
+    data.latitude = rtcHasGpsBaseline ? rtcLastLatitude : 0.0;
+    data.longitude = rtcHasGpsBaseline ? rtcLastLongitude : 0.0;
+    data.gpsFix = false;
+  }
+}
+
+bool detectTheft(const SensorData &data) {
+  bool movementByMpu = false;
+  if (!isnan(data.accelX) && !isnan(data.accelY) && !isnan(data.accelZ)) {
+    const float magnitude = sqrtf(data.accelX * data.accelX + data.accelY * data.accelY + data.accelZ * data.accelZ);
+    movementByMpu = fabsf(magnitude - 9.81F) > 3.0F;
+  }
+
+  bool movementByGps = false;
+  if (data.gpsFix && rtcHasGpsBaseline) {
+    const double meters = TinyGPSPlus::distanceBetween(
+        rtcLastLatitude, rtcLastLongitude, data.latitude, data.longitude);
+    movementByGps = meters > 50.0;
+  }
+
+  return movementByMpu || movementByGps;
+}
+
+// -----------------------------------------------------------------------------
+// taskSensors: read every X seconds and perform anti-theft checks.
+// -----------------------------------------------------------------------------
+void taskSensors(void *parameter) {
+  (void)parameter;
+
+  for (;;) {
+    SensorData data;
+    data.timestamp = currentTimestamp();
+    data.batteryVoltage = readBatteryVoltage();
+    data.tcrt5000 = digitalRead(PIN_TCRT5000) == LOW ? 1 : 0;
+
+    if (bmeOk) {
+      data.temperatureC = bme280.readTemperature();
+      data.humidityPct = bme280.readHumidity();
+      data.pressureHpa = bme280.readPressure() / 100.0F;
+    } else {
+      data.temperatureC = simulatedFloat(24.0F, 36.0F);
+      data.humidityPct = simulatedFloat(45.0F, 75.0F);
+      data.pressureHpa = simulatedFloat(1004.0F, 1020.0F);
+    }
+
+    if (bh1750Ok) {
+      data.luminosityLux = bh1750.readLightLevel();
+    } else {
+      data.luminosityLux = simulatedFloat(100.0F, 900.0F);
+    }
+
+    if (hx711Ok && hx711.is_ready()) {
+      data.weightKg = hx711.get_units(5);
+    } else {
+      data.weightKg = simulatedFloat(35.0F, 45.0F);
+    }
+
+    data.audioRms = readAudioRms(data.audioPeak);
+
+    if (mpuOk) {
+      sensors_event_t accel;
+      sensors_event_t gyro;
+      sensors_event_t temp;
+      mpu6050.getEvent(&accel, &gyro, &temp);
+      data.accelX = accel.acceleration.x;
+      data.accelY = accel.acceleration.y;
+      data.accelZ = accel.acceleration.z;
+      data.gyroX = gyro.gyro.x;
+      data.gyroY = gyro.gyro.y;
+      data.gyroZ = gyro.gyro.z;
+    } else {
+      data.accelX = simulatedFloat(-0.2F, 0.2F);
+      data.accelY = simulatedFloat(-0.2F, 0.2F);
+      data.accelZ = simulatedFloat(9.6F, 10.0F);
+      data.gyroX = simulatedFloat(-0.02F, 0.02F);
+      data.gyroY = simulatedFloat(-0.02F, 0.02F);
+      data.gyroZ = simulatedFloat(-0.02F, 0.02F);
+    }
+
+    readGpsForWindow(data, 1500);
+    data.theftAlert = detectTheft(data);
+    data.mode = data.theftAlert ? "anti_theft_alert" : "normal";
+
+    if (data.gpsFix && !data.theftAlert) {
+      rtcLastLatitude = data.latitude;
+      rtcLastLongitude = data.longitude;
+      rtcHasGpsBaseline = true;
+    }
+
+    xSemaphoreTake(sensorMutex, portMAX_DELAY);
+    latestData = data;
+    xSemaphoreGive(sensorMutex);
+
+    xEventGroupSetBits(systemEvents, BIT_SENSORS_READY);
+    vTaskDelay(pdMS_TO_TICKS(SENSOR_PERIOD_SECONDS * 1000UL));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// MQTT / Wi-Fi helpers and payload builder.
+// -----------------------------------------------------------------------------
+bool connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  const uint32_t start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_TIMEOUT_MS) {
+    vTaskDelay(pdMS_TO_TICKS(250));
+  }
+  return WiFi.status() == WL_CONNECTED;
+}
+
+bool connectMQTT() {
+  mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+
+  const uint32_t start = millis();
+  while (!mqttClient.connected() && millis() - start < MQTT_TIMEOUT_MS) {
+    mqttClient.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD);
+    if (!mqttClient.connected()) {
+      vTaskDelay(pdMS_TO_TICKS(500));
+    }
+  }
+  return mqttClient.connected();
+}
+
+size_t buildJsonPayload(const SensorData &data, char *buffer, size_t bufferSize) {
+  JsonDocument doc;
+
+  doc["device_id"] = DEVICE_ID;
+  doc["timestamp"] = data.timestamp;
+
+  JsonObject sensors = doc["sensors"].to<JsonObject>();
+  JsonObject bme = sensors["bme280"].to<JsonObject>();
+  bme["t"] = data.temperatureC;
+  bme["h"] = data.humidityPct;
+  bme["p"] = data.pressureHpa;
+  sensors["bh1750"] = data.luminosityLux;
+  sensors["hx711"] = data.weightKg;
+  sensors["tcrt5000"] = data.tcrt5000;
+  sensors["inmp441"] = data.audioRms;
+  sensors["inmp441_peak"] = data.audioPeak;
+
+  JsonObject mpu = sensors["mpu"].to<JsonObject>();
+  mpu["ax"] = data.accelX;
+  mpu["ay"] = data.accelY;
+  mpu["az"] = data.accelZ;
+  mpu["gx"] = data.gyroX;
+  mpu["gy"] = data.gyroY;
+  mpu["gz"] = data.gyroZ;
+
+  JsonObject gpsObj = sensors["gps"].to<JsonObject>();
+  gpsObj["lat"] = data.latitude;
+  gpsObj["lon"] = data.longitude;
+  gpsObj["fix"] = data.gpsFix;
+
+  JsonObject status = doc["status"].to<JsonObject>();
+  status["batt_v"] = data.batteryVoltage;
+  status["mode"] = data.mode;
+  status["theft_alert"] = data.theftAlert;
+  status["boot"] = rtcBootCounter;
+
+  return serializeJson(doc, buffer, bufferSize);
+}
+
+// -----------------------------------------------------------------------------
+// taskMQTT: connect Wi-Fi/MQTT, build ArduinoJson payload, and publish.
+// -----------------------------------------------------------------------------
+void taskMQTT(void *parameter) {
+  (void)parameter;
+
+  for (;;) {
+    xEventGroupWaitBits(systemEvents, BIT_SENSORS_READY, pdFALSE, pdTRUE, portMAX_DELAY);
+
+    SensorData data;
+    copyLatestData(data);
+
+    if (data.batteryVoltage < MIN_BATTERY_VOLTAGE_TO_PUBLISH) {
+      // Solar/LiPo policy: do not spend radio energy when the battery is low.
+      xEventGroupSetBits(systemEvents, BIT_LOW_BATTERY | BIT_MQTT_DONE);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+
+    bool published = false;
+    if (connectWiFi()) {
+      configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+      data.timestamp = currentTimestamp();
+
+      if (connectMQTT()) {
+        char payload[1536];
+        buildJsonPayload(data, payload, sizeof(payload));
+        published = mqttClient.publish(MQTT_TOPIC_TELEMETRY, payload, true);
+        mqttClient.loop();
+        vTaskDelay(pdMS_TO_TICKS(250));
+      }
+    }
+
+    mqttClient.disconnect();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+
+    Serial.printf("MQTT publish %s\n", published ? "OK" : "FAILED");
+    xEventGroupSetBits(systemEvents, BIT_MQTT_DONE);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// taskPowerManagement: orchestrates wake -> read -> publish -> deep sleep.
+// -----------------------------------------------------------------------------
+void taskPowerManagement(void *parameter) {
+  (void)parameter;
+
+  const EventBits_t doneBits = BIT_MQTT_DONE | BIT_LOW_BATTERY;
+  xEventGroupWaitBits(systemEvents, doneBits, pdFALSE, pdFALSE, pdMS_TO_TICKS(45000));
+
+  SensorData data;
+  copyLatestData(data);
+
+  Serial.println("Power cycle complete. Entering aggressive deep sleep.");
+  Serial.printf("Battery: %.2f V, mode: %s, next wake in %llu seconds\n",
+                data.batteryVoltage,
+                data.mode,
+                DEEP_SLEEP_SECONDS);
+
+  esp_sleep_enable_timer_wakeup(DEEP_SLEEP_SECONDS * 1000000ULL);
+  Serial.flush();
+  esp_deep_sleep_start();
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(250);
+  rtcBootCounter++;
+  randomSeed(esp_random());
+
+  Serial.println("BeeSpace ESP32-S3 firmware starting...");
+  Serial.printf("Boot counter: %lu\n", static_cast<unsigned long>(rtcBootCounter));
+
+  systemEvents = xEventGroupCreate();
+  sensorMutex = xSemaphoreCreateMutex();
+  if (systemEvents == nullptr || sensorMutex == nullptr) {
+    Serial.println("Fatal: FreeRTOS synchronization allocation failed.");
+    esp_deep_sleep_start();
+  }
+
+  initializeSensors();
+
+  // Explicit FreeRTOS tasks implement the Edge node in the flowchart.
+  xTaskCreatePinnedToCore(taskSensors, "taskSensors", 8192, nullptr, 2, nullptr, 1);
+  xTaskCreatePinnedToCore(taskMQTT, "taskMQTT", 8192, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(taskPowerManagement, "taskPowerManagement", 4096, nullptr, 3, nullptr, 0);
+}
+
+void loop() {
+  // The application is task-driven. The power task will enter deep sleep.
+  vTaskDelay(pdMS_TO_TICKS(1000));
+}
