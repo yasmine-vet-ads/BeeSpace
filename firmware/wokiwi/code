@@ -1,31 +1,30 @@
 /**
- * BeeSpace - ESP32-S3 hive telemetry firmware (Arduino + FreeRTOS).
- *
- * Flowchart implemented here:
- *   Hive[Sensors]
- *      -> Edge[ESP32-S3: FreeRTOS tasks, MQTT JSON Payload, Aggressive Deep Sleep]
- *      -- MQTT --> AI[Gateway/Backend]
- *
- * Backend integration note:
- *   The JSON telemetry published on MQTT_TOPIC_TELEMETRY is intended to be
- *   consumed by the gateway script `IA.py`. That backend can train or infer
- *   with `modelo_beespace_isolation_forest.pkl` and emit an "Alerta explicável"
- *   when environmental, acoustic, weight, bee-flow, or anti-theft anomalies are
- *   detected.
- *
- * Libraries expected by the Arduino/PlatformIO project:
- *   - ArduinoJson
- *   - PubSubClient
- *   - Adafruit BME280 Library + Adafruit Unified Sensor
- *   - BH1750
- *   - Adafruit MPU6050
- *   - HX711
- *   - TinyGPSPlus
- *
- * If a sensor is not present in the lab/Wokwi simulation, the code keeps running
- * and generates plausible simulated readings while still performing full bus and
- * device initialization attempts.
- */
+
+* BeeSpace Firmware de telemetria para colmeia ESP32-S3 (Arduino + FreeRTOS).
+
+* Fluxograma implementado aqui:
+* Colmeia [Sensores]
+* -> Borda [ESP32-S3: Tarefas FreeRTOS, Payload JSON MQTT, Modo de Suspensão Profunda Agressivo]
+* -- MQTT --> IA [Gateway/Backend]
+* Nota de integração com o backend:
+* A telemetria JSON publicada no tópico MQTT_TOPIC_TELEMETRY destina-se a ser
+* consumida pelo script de gateway `IA.py`. Esse backend pode treinar ou inferir
+* com `modelo_beespace_isolation_forest.pkl` e emitir um "Alerta explícito"
+* quando anomalias ambientais, acústicas, de peso, de fluxo de abelhas ou antifurto forem
+* detectadas.
+* Bibliotecas esperadas pelo projeto Arduino/PlatformIO:
+* - ArduinoJson
+* - PubSubClient
+* - Biblioteca Adafruit BME280 + Sensor Unificado Adafruit
+* - BH1750
+* - Adafruit MPU6050
+* - HX711
+* - TinyGPSPlus
+* Se um sensor não estiver presente na simulação do laboratório/Wokwi, o código continua a ser executado
+* e gera leituras simuladas plausíveis, enquanto ainda realiza tentativas completas de inicialização do barramento e
+* do dispositivo.
+
+*/
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
