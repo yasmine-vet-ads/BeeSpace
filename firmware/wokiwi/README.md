@@ -191,7 +191,7 @@ xTaskCreatePinnedToCore(taskPowerManagement, "taskPowerManagement", 4096, nullpt
 
 ```cpp
 // The application is task-driven. The power task will enter deep sleep.
-void loop() {
+loop() {
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
 ```
