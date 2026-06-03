@@ -467,8 +467,8 @@ size_t buildJsonPayload(const SensorData &data, char *buffer, size_t bufferSize)
 // -----------------------------------------------------------------------------
 // taskMQTT: connect Wi-Fi/MQTT, build ArduinoJson payload, and publish.
 // -----------------------------------------------------------------------------
-void taskMQTT(void *parameter) {
-  (void)parameter;
+taskMQTT(*parameter) {
+  ()parameter;
 
   for (;;) {
     xEventGroupWaitBits(systemEvents, BIT_SENSORS_READY, pdFALSE, pdTRUE, portMAX_DELAY);
@@ -530,7 +530,7 @@ void taskPowerManagement(void *parameter) {
   esp_deep_sleep_start();
 }
 
-void setup() {
+setup() {
   Serial.begin(115200);
   delay(250);
   rtcBootCounter++;
@@ -554,7 +554,7 @@ void setup() {
   xTaskCreatePinnedToCore(taskPowerManagement, "taskPowerManagement", 4096, nullptr, 3, nullptr, 0);
 }
 
-void loop() {
+loop() {
   // The application is task-driven. The power task will enter deep sleep.
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
