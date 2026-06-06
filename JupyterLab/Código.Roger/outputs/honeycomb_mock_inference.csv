@@ -1,0 +1,7 @@
+image_path,class_name,percent_area,interpretation
+demo_honeycomb.jpg,mel_operculado,31.5,estoque de mel
+demo_honeycomb.jpg,nectar,18.0,entrada recente de recurso floral
+demo_honeycomb.jpg,ovos_larvas,21.0,cria aberta saudável
+demo_honeycomb.jpg,pupa,13.5,desenvolvimento da colônia
+demo_honeycomb.jpg,celula_vazia,12.0,capacidade disponível
+demo_honeycomb.jpg,anomalia,4.0,ponto para inspeção manual
