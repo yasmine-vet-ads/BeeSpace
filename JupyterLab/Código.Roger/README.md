@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐝 BeeSpace · MVP ClimateTech CopernicusLAC Panamá 2026
+# 🐝 BeeSpace · MVP ClimateTech CopernicusLAC 
 
 **Colmeias como biossensores vivos conectados ao Copernicus para apoiar a resiliência de pequenos agricultores.**
 
@@ -15,7 +15,7 @@
 
 ## 🎯 Objetivo do MVP
 
-Este diretório transforma a trilha de notebooks BeeSpace em um **MVP executável e visualmente forte** para hackathon. A proposta demonstra, de ponta a ponta, como uma colmeia georreferenciada pode integrar:
+A proposta demonstra, de ponta a ponta, como uma colmeia georreferenciada pode integrar:
 
 - sensores IoT embarcados;
 - telemetria sintética realista para demonstração;
@@ -27,7 +27,6 @@ Este diretório transforma a trilha de notebooks BeeSpace em um **MVP executáve
 - dashboard científico em Streamlit;
 - pipeline preparado para visão computacional com YOLO.
 
-> O foco é um MVP plausível, estável e demo-ready, não uma plataforma enterprise.
 
 ---
 
@@ -64,7 +63,7 @@ ndwi = get_ndwi(hive, start_date="2026-05-01", end_date="2026-06-01")
 
 ### Modos de execução
 
-| Modo | Como funciona | Uso no hackathon |
+| Modo | Como funciona | Explica |
 |---|---|---|
 | **Real Sentinel Hub** | Usa `SENTINELHUB_CLIENT_ID` e `SENTINELHUB_CLIENT_SECRET` para chamar a Process API. | Demonstra integração real com Copernicus/Sentinel-2 quando houver credenciais. |
 | **Fallback sintético** | Gera rasters NDVI/NDWI determinísticos e realistas quando não há credenciais. | Garante demo estável mesmo sem internet, sem conta ou sem quota. |
@@ -119,9 +118,9 @@ Interpretação:
 
 ## 🖥️ Dashboard científico
 
-O dashboard Streamlit foi desenhado para impressionar visualmente os avaliadores e mostrar o pipeline completo:
+O dashboard Streamlit para mostrar o pipeline completo:
 
-- mapa da colmeia no Panamá;
+- mapa da colmeia;
 - área monitorada de 2.827 hectares;
 - mapa raster de NDVI;
 - timeline ambiental;
