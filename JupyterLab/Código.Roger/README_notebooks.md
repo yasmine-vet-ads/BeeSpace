@@ -203,6 +203,4 @@ O arquivo `vision/yolo_pipeline.py` organiza diretórios e gera uma inferência 
 
 ---
 
-## 🌎 Mensagem para os jurados
-
 A BeeSpace mostra que uma colmeia não é apenas uma unidade produtiva: ela pode se tornar um **sensor vivo territorial**. Ao cruzar Copernicus, IoT e IA, pequenos agricultores ganham alertas acionáveis sobre florada, estresse hídrico, produtividade e biodiversidade — com uma arquitetura simples o suficiente para um hackathon e escalável o suficiente para um produto ClimateTech real.
