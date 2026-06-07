@@ -1,4 +1,4 @@
-# Plano Técnico Operacional BeeSpace
+# 📘 Plano Técnico Operacional BeeSpace
 
 **Versão:** 1.0  
 **Data:** 2026-06-07  
