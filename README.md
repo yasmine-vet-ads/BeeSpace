@@ -40,6 +40,8 @@
 
 </div>
 
+> 📘 **Plano técnico operacional:** consulte [`docs/PLANO_TECNICO_OPERACIONAL_BEESPACE.md`](docs/PLANO_TECNICO_OPERACIONAL_BEESPACE.md) para o roadmap executivo de arquitetura, IoT, Copernicus, IA, SaaS, DevOps, validação científica e monetização da plataforma.
+
 ---
 
 A **BeeSpace** conecta o que acontece **dentro da colmeia** com o que muda **ao redor dela no território**, criando uma camada de inteligência para apicultores, pesquisadores, empresas e iniciativas de conservação que precisam decidir rápido, com evidência e impacto mensurável.
