@@ -1,1 +1,1 @@
-# Veja as imagens
+#  💹  Veja as imagens que ilustram nosso MVP
