@@ -18,8 +18,6 @@ Perda de biodiversidade e ausência de monitoramento em tempo real apícola.
 
 A BeeSpace transforma o comportamento das abelhas em indicadores ambientais.
 
-[Vídeo Demo]
-
 ## **Biodiversidade em Órbita 🛰️**
 
 **Apicultura inteligente 360º para transformar colmeias em biossensores ESG, combinando IoT embarcado, satélites Copernicus, Visão Computacional e Machine Learning para proteger abelhas, produção agrícola e biodiversidade.**
@@ -238,7 +236,7 @@ Se este projeto ajudou você a enxergar o campo com mais dados, ciência e impac
 
 **BeeSpace**
 
-[![🐝 BeeSpace🛰️O satélite observa o território, a colmeia sente o território.](https://youtu.be/NduF5rLEIF0)](https://youtu.be/NduF5rLEIF0)
+[![🐝 BeeSpace🛰️O satélite observa o território, a colmeia sente o território.](https://img.youtube.com/vi/NduF5rLEIF0/0.jpg)](https://www.youtube.com/watch?v=NduF5rLEIF0)
 
 
 🐝 · 🛰️ · 🧠 · 🌱
