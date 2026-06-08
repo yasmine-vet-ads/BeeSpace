@@ -2,6 +2,24 @@
 
 # 🐝 BeeSpace
 
+Monitoramento inteligente da biodiversidade utilizando
+abelhas como biossensores naturais integrados a:
+
+- Satélites
+- Sensores IoT
+- IA
+- Dados ambientais
+
+## Problema
+
+Perda de biodiversidade e ausência de monitoramento em tempo real apícola.
+
+## Solução
+
+A BeeSpace transforma o comportamento das abelhas em indicadores ambientais.
+
+[Vídeo Demo]
+
 ## **Biodiversidade em Órbita 🛰️**
 
 **Apicultura inteligente 360º para transformar colmeias em biossensores ESG, combinando IoT embarcado, satélites Copernicus, Visão Computacional e Machine Learning para proteger abelhas, produção agrícola e biodiversidade.**
@@ -219,6 +237,9 @@ Se este projeto ajudou você a enxergar o campo com mais dados, ciência e impac
 <br />
 
 **BeeSpace**
+
+[![🐝 BeeSpace🛰️O satélite observa o território, a colmeia sente o território.](https://youtu.be/NduF5rLEIF0)](https://youtu.be/NduF5rLEIF0)
+
 
 🐝 · 🛰️ · 🧠 · 🌱
 
